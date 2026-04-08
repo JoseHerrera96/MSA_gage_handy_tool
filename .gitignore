@@ -1,0 +1,28 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# ── Virtual environment ──
+.venv/
+venv/
+ENV/
+
+# ── IDE / Editor ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ──
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# ── Project-specific binary / proprietary formats ──
+*.qpf
+*.mwx
