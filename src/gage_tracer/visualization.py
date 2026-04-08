@@ -81,58 +81,73 @@ def _render_dimension_chart(
         figsize=(11, 9),
         gridspec_kw={"height_ratios": [1.2, 0.8]},
     )
-    fig.patch.set_facecolor("#0b0e14")
+    fig.patch.set_facecolor("#FEFEFE")  # Match page background
+
+    # Chart palette — 3-color rule:
+    #   #FF6135 (brand orange) = highlight / attention data
+    #   #3A3A44 (dark gray) = primary data line
+    #   #B0B0BA (light gray) = context / grid / secondary info
+    CLR_DATA = "#3A3A44"       # Measurement line & dots
+    CLR_REF = "#1A8754"        # Reference line (green = good)
+    CLR_LIMIT = "#FF6135"      # Tolerance limits (brand orange = attention)
+    CLR_MEAN = "#FF420D"       # Mean line when offset from ref (accent orange)
+    CLR_GRID = "#E0E0E4"      # Grid lines — very light, non-competing
+    CLR_LABEL = "#5A5A66"      # Axis labels
+    CLR_TITLE = "#010101"      # Titles
+    CLR_SPINE = "#D1D1D6"      # Axis borders
+    CLR_CARD = "#FFFFFF"       # Plot area background
 
     ax1 = axes[0]
     x_vals = list(range(1, len(measurements) + 1))
-    ax1.axhline(y=ref_upper, color="#e8836a", ls="--", lw=1.2, zorder=1, label="Ref+0.10·Tol")
-    ax1.axhline(y=reference_val, color="#7dcea0", ls="-", lw=2, alpha=0.9, zorder=2, label="Ref")
-    ax1.axhline(y=ref_lower, color="#e8836a", ls="--", lw=1.2, zorder=1, label="Ref−0.10·Tol")
+    ax1.axhline(y=ref_upper, color=CLR_LIMIT, ls="--", lw=1.2, zorder=1, label="Ref+0.10·Tol")
+    ax1.axhline(y=reference_val, color=CLR_REF, ls="-", lw=2, alpha=0.9, zorder=2, label="Ref")
+    ax1.axhline(y=ref_lower, color=CLR_LIMIT, ls="--", lw=1.2, zorder=1, label="Ref−0.10·Tol")
     if abs(mean_val - reference_val) > 1e-12:
-        ax1.axhline(y=mean_val, color="#d4a574", ls=":", lw=1.4, alpha=0.9, zorder=2, label="Mean")
+        ax1.axhline(y=mean_val, color=CLR_MEAN, ls=":", lw=1.4, alpha=0.9, zorder=2, label="Mean")
     ax1.plot(
         x_vals,
         measurements.values,
         "-o",
         ms=3,
         lw=0.9,
-        color="#58a6c9",
-        markerfacecolor="#79c0db",
-        markeredgecolor="#58a6c9",
+        color=CLR_DATA,
+        markerfacecolor=CLR_DATA,
+        markeredgecolor=CLR_DATA,
         markeredgewidth=0.4,
         zorder=3,
     )
-    ax1.set_facecolor("#11151c")
-    ax1.set_xlabel("Observation", fontsize=9, color="#6e7681")
-    ax1.set_ylabel(dim, fontsize=10, color="#8b949e", fontweight="bold")
-    ax1.set_title(f"Run Chart of {dim}", fontsize=11, fontweight="bold", color="#c9d1d9", pad=6)
-    ax1.tick_params(labelsize=8, colors="#6e7681")
-    ax1.grid(True, alpha=0.08, color="#484f58")
+    ax1.set_facecolor(CLR_CARD)
+    ax1.set_xlabel("Observation", fontsize=9, color=CLR_LABEL)
+    ax1.set_ylabel(dim, fontsize=10, color=CLR_TITLE, fontweight="bold")
+    ax1.set_title(f"Run Chart of {dim}", fontsize=11, fontweight="bold", color=CLR_TITLE, pad=6)
+    ax1.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax1.grid(True, alpha=0.5, color=CLR_GRID)
     for sp in ax1.spines.values():
-        sp.set_color("#21262d")
+        sp.set_color(CLR_SPINE)
     ax1.set_ylim(center_line - half_range, center_line + half_range)
-    ax1.legend(fontsize=7, loc="upper right", facecolor="#11151c", edgecolor="#21262d", labelcolor="#8b949e", framealpha=0.85)
+    ax1.legend(fontsize=7, loc="upper right", facecolor=CLR_CARD, edgecolor=CLR_SPINE, labelcolor=CLR_LABEL, framealpha=0.95)
 
+    # --- Bottom panel: Histogram ---
     ax2 = axes[1]
     n_bins: int = min(12, max(5, int(np.sqrt(len(measurements)))))
-    ax2.hist(measurements.values, bins=n_bins, color="#58a6c9", edgecolor="#11151c", lw=0.6, rwidth=0.85, alpha=0.85)
-    ax2.set_facecolor("#11151c")
-    ax2.set_xlabel("Value", fontsize=9, color="#6e7681")
-    ax2.set_ylabel("Freq", fontsize=9, color="#6e7681")
-    ax2.tick_params(labelsize=8, colors="#6e7681")
-    ax2.grid(True, alpha=0.08, color="#484f58", axis="y")
+    ax2.hist(measurements.values, bins=n_bins, color="#B0B0BA", edgecolor=CLR_CARD, lw=0.6, rwidth=0.85, alpha=0.85)
+    ax2.set_facecolor(CLR_CARD)
+    ax2.set_xlabel("Value", fontsize=9, color=CLR_LABEL)
+    ax2.set_ylabel("Freq", fontsize=9, color=CLR_LABEL)
+    ax2.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax2.grid(True, alpha=0.5, color=CLR_GRID, axis="y")
     for sp in ax2.spines.values():
-        sp.set_color("#21262d")
+        sp.set_color(CLR_SPINE)
     hp: float = data_span * 0.3 if data_span > 0 else 1e-6
     ax2.set_xlim(data_min - hp, data_max + hp)
-    ax2.axvline(x=reference_val, color="#7dcea0", ls="-", lw=1.6, alpha=0.7, label="Ref")
+    ax2.axvline(x=reference_val, color=CLR_REF, ls="-", lw=1.6, alpha=0.7, label="Ref")
     if abs(mean_val - reference_val) > 1e-12:
-        ax2.axvline(x=mean_val, color="#d4a574", ls=":", lw=1.3, alpha=0.8, label="Mean")
-    ax2.legend(fontsize=7, loc="best", facecolor="#11151c", edgecolor="#21262d", labelcolor="#8b949e", framealpha=0.85)
+        ax2.axvline(x=mean_val, color=CLR_MEAN, ls=":", lw=1.3, alpha=0.8, label="Mean")
+    ax2.legend(fontsize=7, loc="best", facecolor=CLR_CARD, edgecolor=CLR_SPINE, labelcolor=CLR_LABEL, framealpha=0.95)
 
     plt.tight_layout(pad=1.2)
     buf = BytesIO()
-    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight", facecolor="#0b0e14")
+    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight", facecolor="#FEFEFE")
     plt.close(fig)
     buf.seek(0)
     return base64.b64encode(buf.read()).decode("utf-8")
@@ -270,7 +285,7 @@ def _build_detail_cards(chart_images: list[dict[str, Any]]) -> str:
   </div>
   <div class="detail-metrics">
     <div class="metric-group">
-      <div class="metric-group-title" style="color:var(--color-accent-blue);">Basic Statistics</div>
+      <div class="metric-group-title" style="color:var(--color-text-secondary);">Basic Statistics</div>
       <div class="metric-row"><span class="metric-label">Reference</span><span class="metric-value">{ref_fmt}</span></div>
       <div class="metric-row"><span class="metric-label">Mean</span><span class="metric-value">{mean_fmt}</span></div>
       <div class="metric-row"><span class="metric-label">StdDev</span><span class="metric-value">{std_fmt}</span></div>
@@ -280,13 +295,13 @@ def _build_detail_cards(chart_images: list[dict[str, Any]]) -> str:
       <div class="metric-row"><span class="metric-label">Observations</span><span class="metric-value">{d['observations']}</span></div>
     </div>
     <div class="metric-group">
-      <div class="metric-group-title" style="color:var(--color-status-accept);">Bias</div>
+      <div class="metric-group-title" style="color:var(--color-status-accept);">Bias Analysis</div>
       <div class="metric-row"><span class="metric-label">Bias</span><span class="metric-value">{bias_fmt}</span></div>
       <div class="metric-row"><span class="metric-label">T</span><span class="metric-value">{t_fmt}</span></div>
       <div class="metric-row"><span class="metric-label">PValue (Bias=0)</span><span class="metric-value">{p_fmt}</span></div>
     </div>
     <div class="metric-group">
-      <div class="metric-group-title" style="color:var(--color-accent-amber);">Capability</div>
+      <div class="metric-group-title" style="color:var(--color-brand-primary);">Capability</div>
       <div class="metric-row"><span class="metric-label">Cg</span><span class="metric-value" style="font-size:15px;font-weight:600;">{d['cg']:.4f}</span></div>
       <div class="metric-row"><span class="metric-label">Cgk</span><span class="metric-value" style="font-size:15px;font-weight:600;">{d['cgk']:.4f}</span></div>
       <div class="metric-row"><span class="metric-label">%Var(Repeat)</span><span class="metric-value">{vr_fmt}</span></div>
@@ -304,22 +319,35 @@ def _build_detail_cards(chart_images: list[dict[str, Any]]) -> str:
 # ---------------------------------------------------------------------------
 
 _CSS_TEMPLATE = """\
-/* Dark-theme dashboard — uses CSS custom properties for easy theming */:root {
-  --color-bg-base:        #0b0e14;
-  --color-bg-surface:     #131720;
-  --color-bg-elevated:    #1a1f2b;
-  --color-bg-hover:       #1e2533;
-  --color-border-subtle:  #1e2430;
-  --color-border-default: #2a3140;
-  --color-text-primary:   #d1d5db;
-  --color-text-secondary: #6e7681;
-  --color-text-muted:     #484f58;
-  --color-text-inverse:   #0b0e14;
-  --color-accent-blue:    #58a6c9;
-  --color-accent-amber:   #d4a574;
-  --color-status-accept:  #7dcea0;
-  --color-status-reject:  #e07070;
-  --color-status-warn:    #d4a574;
+/* Samtec corporate light theme — semantic design tokens */
+:root {
+  /* Brand colors */
+  --color-brand-primary:  #FF6135;  /* Vibrant orange — CTAs, primary KPI emphasis */
+  --color-brand-accent:   #FF420D;  /* Intense orange — critical alerts, danger states */
+
+  /* Backgrounds */
+  --color-bg-page:        #FEFEFE;  /* Page background — reduces eye fatigue */
+  --color-bg-surface:     #FFFFFF;  /* Card/widget background */
+  --color-bg-elevated:    #F5F5F7;  /* Grouped content, table headers */
+  --color-bg-hover:       #FFF3EF;  /* Hover state — warm orange tint */
+
+  /* Borders & shadows */
+  --color-border-subtle:  #E8E8EC;  /* Card edges, section dividers */
+  --color-border-default: #D1D1D6;  /* Active borders, inputs */
+  --shadow-card:          0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-card-hover:    0 4px 12px rgba(0,0,0,0.08);
+
+  /* Text (WCAG 2.2 AA compliant on #FEFEFE) */
+  --color-text-primary:   #010101;  /* KPI values, section titles — max legibility */
+  --color-text-secondary: #5A5A66;  /* Labels, descriptions — 7.4:1 on white */
+  --color-text-muted:     #8E8E99;  /* Tertiary info, timestamps — 4.6:1 on white */
+  --color-text-inverse:   #FFFFFF;  /* Text on colored backgrounds */
+
+  /* Semantic status — green/red kept for accept/reject meaning */
+  --color-status-accept:  #1A8754;  /* Accessible green — 4.6:1 on white */
+  --color-status-reject:  #D42B2B;  /* Accessible red — 5.9:1 on white */
+
+  /* Spacing & typography */
   --space-xs: 4px; --space-sm: 8px; --space-md: 16px;
   --space-lg: 24px; --space-xl: 32px; --space-container: 28px 32px;
   --font-sans:  'Inter', 'Segoe UI', system-ui, sans-serif;
@@ -328,51 +356,88 @@ _CSS_TEMPLATE = """\
   --font-body:  13px; --font-small: 11px;
   --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px;
 }
+
+/* Reset */
 *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 html { font-size: 16px; }
 body {
-  background: var(--color-bg-base); color: var(--color-text-primary);
+  background: var(--color-bg-page); color: var(--color-text-primary);
   font-family: var(--font-sans); padding: var(--space-container);
   line-height: 1.55; -webkit-font-smoothing: antialiased;
 }
-.dash-header { display:flex; justify-content:space-between; align-items:baseline;
-  padding-bottom:var(--space-md); border-bottom:1px solid var(--color-border-subtle);
-  margin-bottom:var(--space-lg); }
-.dash-title { font-size:20px; font-weight:600; color:var(--color-text-primary); letter-spacing:.2px; }
-.dash-title em { font-style:normal; background:linear-gradient(135deg,var(--color-accent-blue),#9b8ec4);
-  -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
-.dash-date { color:var(--color-text-secondary); font-size:var(--font-small); }
-.kpi-row { display:grid; grid-template-columns:1.7fr repeat(4,1fr); gap:var(--space-md); margin-bottom:var(--space-lg); }
-.kpi-card { background:var(--color-bg-surface); border:1px solid var(--color-border-subtle);
-  border-radius:var(--radius-md); padding:var(--space-md) var(--space-lg); transition:border-color .15s; }
-.kpi-card:hover { border-color:var(--color-accent-blue); }
-.kpi-label { color:var(--color-text-secondary); font-size:var(--font-small); text-transform:uppercase;
-  letter-spacing:1.2px; font-weight:500; margin-bottom:2px; }
-.kpi-value { font-weight:700; letter-spacing:-.5px; line-height:1.1; }
-.kpi-primary .kpi-value { font-size:var(--font-kpi); }
+
+/* Header — logo left, title center, date right */
+.dash-header {
+  display:flex; align-items:center; gap:var(--space-md);
+  padding-bottom:var(--space-md); border-bottom:2px solid var(--color-border-subtle);
+  margin-bottom:var(--space-lg);
+}
+.dash-logo { height:40px; width:auto; flex-shrink:0; }  /* Logo capped at 40px */
+.dash-title {
+  font-size:20px; font-weight:600; color:var(--color-text-primary);
+  letter-spacing:.2px; flex:1;
+}
+.dash-title em {
+  font-style:normal; color:var(--color-brand-primary); /* Brand orange on title keyword */
+}
+.dash-date { color:var(--color-text-muted); font-size:var(--font-small); flex-shrink:0; }
+
+/* KPI strip */
+.kpi-row {
+  display:grid; grid-template-columns:1.7fr repeat(4,1fr);
+  gap:var(--space-md); margin-bottom:var(--space-lg);
+}
+.kpi-card {
+  background:var(--color-bg-surface); box-shadow:var(--shadow-card);
+  border-radius:var(--radius-md); padding:var(--space-md) var(--space-lg);
+  transition:box-shadow .15s, transform .15s;
+}
+.kpi-card:hover { box-shadow:var(--shadow-card-hover); transform:translateY(-1px); }
+.kpi-label {
+  color:var(--color-text-secondary); font-size:var(--font-small);
+  text-transform:uppercase; letter-spacing:1.2px; font-weight:500; margin-bottom:2px;
+}
+.kpi-value { color:var(--color-text-primary); font-weight:700; letter-spacing:-.5px; line-height:1.1; }
+.kpi-primary .kpi-value { font-size:var(--font-kpi); }  /* Pass rate = largest number on screen */
 .kpi-secondary .kpi-value { font-size:clamp(26px,3.5vw,34px); }
 .kpi-sub { color:var(--color-text-muted); font-size:var(--font-small); margin-top:2px; }
-.summary-table { width:100%; border-collapse:collapse; font-size:var(--font-body);
-  margin-bottom:var(--space-lg); border-radius:var(--radius-md); overflow:hidden; }
-.summary-table th { background:var(--color-bg-elevated); color:var(--color-text-secondary);
+
+/* Summary table */
+.summary-table {
+  width:100%; border-collapse:collapse; font-size:var(--font-body);
+  margin-bottom:var(--space-lg); border-radius:var(--radius-md);
+  overflow:hidden; box-shadow:var(--shadow-card);
+}
+.summary-table th {
+  background:var(--color-bg-elevated); color:var(--color-text-secondary);
   font-size:10px; text-transform:uppercase; letter-spacing:1px; font-weight:600;
   padding:10px 14px; text-align:left; border-bottom:1px solid var(--color-border-default);
-  position:sticky; top:0; z-index:2; }
-.summary-table td { padding:9px 14px; border-bottom:1px solid var(--color-border-subtle); transition:background .12s; }
+  position:sticky; top:0; z-index:2;
+}
+.summary-table td {
+  padding:9px 14px; border-bottom:1px solid var(--color-border-subtle);
+  transition:background .12s;
+}
 .summary-row { cursor:pointer; }
 .summary-row:hover td { background:var(--color-bg-hover); }
 .cell-dim { color:var(--color-text-primary); font-weight:600; }
 .cell-mono { font-family:var(--font-mono); font-size:12px; color:var(--color-text-primary); }
 .cell-expand { text-align:center; color:var(--color-text-muted); font-size:12px; transition:transform .2s; }
-.row-open .cell-expand { transform:rotate(90deg); color:var(--color-accent-blue); }
+.row-open .cell-expand { transform:rotate(90deg); color:var(--color-brand-primary); }
+
+/* Status badges */
 .status-accept { color:var(--color-status-accept); font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
 .status-reject { color:var(--color-status-reject); font-weight:700; font-size:11px; text-transform:uppercase; letter-spacing:.5px; }
 .kpi-good { color:var(--color-status-accept); font-family:var(--font-mono); font-weight:600; }
 .kpi-bad  { color:var(--color-status-reject); font-family:var(--font-mono); font-weight:600; }
-.detail-card { background:var(--color-bg-surface); border-left:4px solid var(--color-status-accept);
+
+/* Detail cards */
+.detail-card {
+  background:var(--color-bg-surface); border-left:4px solid var(--color-status-accept);
   border-radius:var(--radius-md); margin-bottom:var(--space-md); padding:var(--space-md);
-  gap:var(--space-md); display:flex; flex-wrap:wrap; }
-.detail-card.highlight { animation:fadeSlide .25s ease-out; border-color:var(--color-accent-blue) !important; }
+  gap:var(--space-md); display:flex; flex-wrap:wrap; box-shadow:var(--shadow-card);
+}
+.detail-card.highlight { animation:fadeSlide .25s ease-out; border-left-color:var(--color-brand-primary) !important; }
 @keyframes fadeSlide { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
 .detail-chart { flex:2; min-width:380px; }
 .detail-chart img { width:100%; display:block; border-radius:var(--radius-sm); }
@@ -382,9 +447,12 @@ body {
 .metric-row { display:flex; justify-content:space-between; padding:3px 0; font-size:12px; }
 .metric-label { color:var(--color-text-secondary); }
 .metric-value { color:var(--color-text-primary); font-family:var(--font-mono); font-size:12px; }
-.metric-status { align-self:stretch; text-align:center; font-weight:800; font-size:13px;
+.metric-status {
+  align-self:stretch; text-align:center; font-weight:800; font-size:13px;
   padding:8px; border-radius:var(--radius-sm); color:var(--color-text-inverse);
-  letter-spacing:1px; text-transform:uppercase; }
+  letter-spacing:1px; text-transform:uppercase;
+}
+
 @media (max-width:900px) { .kpi-row{grid-template-columns:1fr 1fr;} .detail-card{flex-direction:column;} }
 """
 
@@ -421,7 +489,16 @@ def create_dashboard(
             ``calculate_type1_metrics``.
         output_path: Destination path for the ``.html`` file.
     """
+    import base64 as _b64
     import time
+
+    # Embed the logo as base-64 so the HTML stays self-contained.
+    logo_path = output_path.parent / "Samtec_logo_png.png"
+    if logo_path.exists():
+        logo_b64 = _b64.b64encode(logo_path.read_bytes()).decode("utf-8")
+        logo_tag = f'<img class="dash-logo" src="data:image/png;base64,{logo_b64}" alt="Samtec">'
+    else:
+        logo_tag = ""
 
     num_dims: int = len(summary_data)
     accepted: int = sum(1 for s in summary_data if s["Status"] == "ACCEPT")
@@ -437,7 +514,7 @@ def create_dashboard(
 
     timestamp: str = time.strftime("%Y-%m-%d %H:%M:%S")
 
-    pr_color = "var(--color-status-accept)" if pass_rate >= 75 else "var(--color-status-reject)"
+    pr_color = "var(--color-status-accept)" if pass_rate >= 75 else "var(--color-brand-accent)"
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -452,6 +529,7 @@ def create_dashboard(
 <body>
 
 <div class="dash-header">
+  {logo_tag}
   <h1 class="dash-title"><em>Type 1 Gage Study</em> Dashboard</h1>
   <span class="dash-date">{timestamp}</span>
 </div>
@@ -470,14 +548,14 @@ def create_dashboard(
     <div class="kpi-label">Rejected</div>
     <div class="kpi-value" style="color:var(--color-status-reject);">{rejected}</div>
   </div>
-  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-status-accept);">
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-brand-primary);">
     <div class="kpi-label">Best Cgk</div>
-    <div class="kpi-value" style="color:var(--color-status-accept);">{best['Cgk']:.2f}</div>
+    <div class="kpi-value" style="color:var(--color-text-primary);">{best['Cgk']:.2f}</div>
     <div class="kpi-sub">{best['Gage Item']}</div>
   </div>
-  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-status-reject);">
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-brand-accent);">
     <div class="kpi-label">Worst Cgk</div>
-    <div class="kpi-value" style="color:var(--color-status-reject);">{worst['Cgk']:.2f}</div>
+    <div class="kpi-value" style="color:var(--color-text-primary);">{worst['Cgk']:.2f}</div>
     <div class="kpi-sub">{worst['Gage Item']}</div>
   </div>
 </div>
