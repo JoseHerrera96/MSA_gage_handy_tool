@@ -1,22 +1,22 @@
-"""OGP Data Transformation Module.
+"""
+OGP output data transformation module:
 
-This module reads OGP (Optical Gaging Products) measurement data from a
-text file, parses dimension measurements, and exports them to a TSV file
-with computed statistics (average and max difference) interleaved with
-measurement data for each dimension.
+This module reads OGP measurement data from a text file, parses dimension measurements, and exports 
+them to a TSV file with computed statistics (average and max difference) interleaved with measurement 
+data for each dimension.
 """
 
 import pandas as pd
 
 
-def _parse_ogp_data(input_file: str) -> tuple[
-    list[dict[str, float]], dict[str, dict[str, float]]
-]:
-    """Parse raw OGP data file into measurement repetitions and specs.
+def _parse_ogp_data(input_file: str) -> tuple[list[dict[str, float]], dict[str, dict[str, float]]]:
 
-    Reads dimension measurement blocks delimited by ':BEGIN' and ':END'
-    markers. Extracts dimension names, values, and tolerance specs.
-    Stores nominal, upper tolerance, and lower tolerance per dimension.
+    """
+    Parse raw OGP data file into measurement repetitions and specs.
+
+    Reads dimension measurement blocks delimited by ':BEGIN' and ':END' markers. Extracts 
+    dimension names, values, and tolerance specs. Stores nominal, upper tolerance, and lower 
+    tolerance per dimension.
 
     Args:
         input_file: Path to the OGP raw data file.
@@ -24,8 +24,8 @@ def _parse_ogp_data(input_file: str) -> tuple[
     Returns:
         Tuple of (measurements list, specs dict).
         measurements: List of dicts with dimension names and measured values.
-        specs: Dict mapping dimension names to their nominal, upper, lower
-               tolerance values (extracted from first occurrence).
+        specs: Dict mapping dimension names to their nominal, upper, lower tolerance values (extracted 
+        from first occurrence).
     """
     all_repetitions: list[dict[str, float]] = []
     current_repetition: dict[str, float] = {}
@@ -40,11 +40,11 @@ def _parse_ogp_data(input_file: str) -> tuple[
             elif line.startswith('":END"'):
                 if current_repetition:
                     all_repetitions.append(current_repetition)
-            elif line.startswith('"C'):
+            elif line.startswith('"C'):                 #change to accepted dimension that do not start with "C" if needed
                 parts = line.split('\t')
                 if len(parts) >= 5:
                     raw_dim_name = parts[0].strip('"')
-                    dim_name = raw_dim_name.replace('_OUT1', '')
+                    dim_name = raw_dim_name.replace('_OUT1', '')            #change to only remove specific suffix if is present, to avoid removing valid characters from dimension names
                     try:
                         measurement = float(parts[1])
                         nominal = float(parts[2])
@@ -66,11 +66,10 @@ def _parse_ogp_data(input_file: str) -> tuple[
     return all_repetitions, dimension_specs
 
 
-def _compute_dimension_statistics(
-    df: pd.DataFrame,
-    specs: dict[str, dict[str, float]],
-) -> pd.DataFrame:
-    """Compute average and max difference for each dimension column.
+def _compute_dimension_statistics(df: pd.DataFrame,specs: dict[str, dict[str, float]],) -> pd.DataFrame:
+
+    """
+    Compute average and max difference for each dimension column.
 
     Args:
         df: DataFrame with measurement columns.
@@ -98,15 +97,14 @@ def _compute_dimension_statistics(
     return pd.DataFrame(stats)
 
 
-def _build_interleaved_output(
-    df: pd.DataFrame,
-    stats_df: pd.DataFrame,
-) -> pd.DataFrame:
-    """Create output with data section, separators, and vertical stats.
+def _build_interleaved_output(df: pd.DataFrame, stats_df: pd.DataFrame,) -> pd.DataFrame:
+
+    """
+    Create output with data section, separators, and vertical stats.
 
     Structure: [measurement columns] + [2 blank columns] + [stats lookup].
-    Stats section: Dimension | Average | Max diff | Nominal | Upper Tol |
-    Lower Tol (vertical, one per row).
+    Stats section: Dimension | Average | Max diff | Nominal | Upper Tol | Lower Tol 
+    (vertical, one per row)
 
     Args:
         df: DataFrame with measurement data.
@@ -122,11 +120,8 @@ def _build_interleaved_output(
     combined_df[' '] = ''
 
     # Add the stats section columns with object dtype
-    for col in ('Dimension', 'Average', 'Max diff',
-                'Nominal', 'Upper Tol', 'Lower Tol'):
-        combined_df[col] = pd.Series(
-            dtype='object', index=combined_df.index
-        )
+    for col in ('Dimension', 'Average', 'Max diff','Nominal', 'Upper Tol', 'Lower Tol'):
+        combined_df[col] = pd.Series(dtype='object', index=combined_df.index)
 
     # Fill stats rows
     for idx, row in stats_df.iterrows():
@@ -140,10 +135,10 @@ def _build_interleaved_output(
     return combined_df
 
 
-def _format_output_dataframe(
-    df: pd.DataFrame,
-) -> pd.DataFrame:
-    """Format numeric columns to specified decimal precision.
+def _format_output_dataframe(df: pd.DataFrame,) -> pd.DataFrame:
+
+    """
+    Format numeric columns to specified decimal precision.
 
     Measurement columns: 7 decimals.
     Average, Max diff, Nominal, Upper Tol, Lower Tol: 8 decimals.
@@ -179,11 +174,10 @@ def _format_output_dataframe(
     return df
 
 
-def transform_ogp_data(
-    input_file: str,
-    output_file: str,
-) -> None:
-    """Transform OGP data file into structured measurement output.
+def transform_ogp_data(input_file: str,output_file: str,) -> None:
+    
+    """
+    Transform OGP data file into structured measurement output.
 
     Reads raw OGP measurements, computes statistics per dimension,
     and exports results to TSV format with interleaved data/stats.
