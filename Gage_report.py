@@ -163,31 +163,32 @@ class SimplifiedGageReporter(FileSystemEventHandler):
             print(f"Error reading gage data: {e}")
 
     def create_dashboard(self, df, summary_data):
-        """Create a Minitab-style Type 1 Gage Study dashboard using matplotlib.
-        
-        Args:
-            df: DataFrame with measurement data already loaded.
-            summary_data: List of dicts with Minitab-style metrics such as
-                reference, bias, tolerance, capability, and % variation.
+        """Create a high-density Type 1 Gage Study dashboard.
+
+        Architecture: semantic design tokens, F-pattern layout, progressive
+        disclosure (details hidden behind click), 80/20 KPI hierarchy.
         """
         try:
             import matplotlib
             matplotlib.use('Agg')
             import matplotlib.pyplot as plt
-            import matplotlib.ticker as ticker
             import base64
             from io import BytesIO
 
             summary_df = pd.DataFrame(summary_data)
-            # Rename to match dashboard expectations
             summary_df = summary_df.rename(columns={'Gage Item': 'Dimension'})
             num_dims = len(summary_df)
             accepted = sum(1 for s in summary_data if s['Status'] == 'ACCEPT')
             rejected = num_dims - accepted
+            pass_rate = round(accepted * 100 / num_dims, 1) if num_dims else 0
 
-            # Generate one chart image per dimension (Minitab style)
+            # ── Identify worst dimension (lowest Cgk) for KPI spotlight ──
+            worst = min(summary_data, key=lambda s: s['Cgk'])
+            best = max(summary_data, key=lambda s: s['Cgk'])
+
+            # ── Generate charts ──
             chart_images = []
-            for i, (_, row) in enumerate(summary_df.iterrows()):
+            for _, row in summary_df.iterrows():
                 dim = row['Dimension']
                 if dim not in df.columns:
                     continue
@@ -195,18 +196,9 @@ class SimplifiedGageReporter(FileSystemEventHandler):
                 reference_val = float(row['Reference'])
                 mean_val = float(row['Mean'])
                 std_val = float(row['StdDev'])
-                tolerance_val = float(row['Tolerance (Tol)'])
                 ref_upper = float(row['Ref + 0.10*Tol'])
                 ref_lower = float(row['Ref - 0.10*Tol'])
-                max_diff_val = float(row['Max diff'])
-                status = row['Status']
 
-                fig, axes = plt.subplots(2, 1, figsize=(13.2, 12),
-                                         gridspec_kw={'height_ratios': [1, 1]})
-                fig.patch.set_facecolor('#0d1117')
-                fig.suptitle(f'Type 1 Gage Study for {dim}', fontsize=16, fontweight='bold', color='#c9d1d9', y=0.98)
-
-                # ── Compute y-axis range: reference at center, with mean shown for comparison ──
                 if pd.isna(std_val) or std_val == 0:
                     std_val = 0.0
                 data_min = float(measurements.min())
@@ -216,87 +208,89 @@ class SimplifiedGageReporter(FileSystemEventHandler):
                     data_span = abs(mean_val) * 1e-4 if mean_val != 0 else 1e-6
 
                 center_line = reference_val
-                max_dist = max(abs(data_max - center_line), abs(data_min - center_line))
-                max_dist = max(max_dist, abs(ref_upper - center_line), abs(ref_lower - center_line))
-
+                max_dist = max(
+                    abs(data_max - center_line), abs(data_min - center_line),
+                    abs(ref_upper - center_line), abs(ref_lower - center_line),
+                )
                 half_range = max_dist * 1.1
                 if std_val > 0:
                     half_range = max(half_range, 5 * std_val)
                 if half_range == 0:
                     half_range = data_span * 2
-                y_lo = center_line - half_range
-                y_hi = center_line + half_range
 
-                # ── Top: Run Chart ──
+                # ── matplotlib: Run Chart + Histogram ──
+                fig, axes = plt.subplots(
+                    2, 1, figsize=(11, 9),
+                    gridspec_kw={'height_ratios': [1.2, 0.8]},
+                )
+                fig.patch.set_facecolor('#0b0e14')
+
                 ax1 = axes[0]
                 x_vals = list(range(1, len(measurements) + 1))
-
-                ax1.axhline(y=ref_upper, color='#e8836a', linestyle='--', linewidth=1.3,
-                            label=f'Ref + 0.10*Tol = {ref_upper:.8f}', zorder=1)
-                ax1.axhline(y=reference_val, color='#8cc68a', linestyle='-', linewidth=2,
-                            alpha=0.9, label=f'Ref = {reference_val:.8f}', zorder=2)
-                ax1.axhline(y=ref_lower, color='#e8836a', linestyle='--', linewidth=1.3,
-                            label=f'Ref - 0.10*Tol = {ref_lower:.8f}', zorder=1)
-
+                ax1.axhline(y=ref_upper, color='#e8836a', ls='--', lw=1.2, zorder=1,
+                            label=f'Ref+0.10·Tol')
+                ax1.axhline(y=reference_val, color='#7dcea0', ls='-', lw=2, alpha=.9,
+                            zorder=2, label='Ref')
+                ax1.axhline(y=ref_lower, color='#e8836a', ls='--', lw=1.2, zorder=1,
+                            label=f'Ref−0.10·Tol')
                 if abs(mean_val - reference_val) > 1e-12:
-                    ax1.axhline(y=mean_val, color='#d4a574', linestyle=':', linewidth=1.5,
-                                alpha=0.9, label=f'Mean = {mean_val:.8f}', zorder=2)
+                    ax1.axhline(y=mean_val, color='#d4a574', ls=':', lw=1.4, alpha=.9,
+                                zorder=2, label='Mean')
+                ax1.plot(x_vals, measurements.values, '-o', ms=3, lw=0.9,
+                         color='#58a6c9', markerfacecolor='#79c0db',
+                         markeredgecolor='#58a6c9', markeredgewidth=0.4, zorder=3)
+                ax1.set_facecolor('#11151c')
+                ax1.set_xlabel('Observation', fontsize=9, color='#6e7681')
+                ax1.set_ylabel(dim, fontsize=10, color='#8b949e', fontweight='bold')
+                ax1.set_title(f'Run Chart of {dim}', fontsize=11, fontweight='bold',
+                              color='#c9d1d9', pad=6)
+                ax1.tick_params(labelsize=8, colors='#6e7681')
+                ax1.grid(True, alpha=0.08, color='#484f58')
+                for sp in ax1.spines.values():
+                    sp.set_color('#21262d')
+                ax1.set_ylim(center_line - half_range, center_line + half_range)
+                ax1.legend(fontsize=7, loc='upper right', facecolor='#11151c',
+                           edgecolor='#21262d', labelcolor='#8b949e', framealpha=.85)
 
-                ax1.plot(x_vals, measurements.values, '-o', markersize=4, linewidth=1.1,
-                         color='#58a6c9', markerfacecolor='#79c0db', markeredgecolor='#58a6c9',
-                         markeredgewidth=0.5, zorder=3)
-
-                ax1.set_facecolor('#161b22')
-                ax1.set_xlabel('Observation', fontsize=11, color='#8b949e')
-                ax1.set_ylabel('Value', fontsize=11, color='#8b949e')
-                ax1.set_title('Run Chart', fontsize=13, fontweight='bold', color='#c9d1d9')
-                ax1.tick_params(labelsize=10, colors='#8b949e')
-                ax1.grid(True, alpha=0.12, color='#484f58', linestyle='-', zorder=0)
-                for spine in ax1.spines.values():
-                    spine.set_color('#30363d')
-                ax1.set_ylim(y_lo, y_hi)
-                ax1.legend(fontsize=9, loc='upper right', facecolor='#161b22',
-                           edgecolor='#30363d', labelcolor='#c9d1d9')
-
-                # ── Bottom: Standard Vertical Histogram ──
                 ax2 = axes[1]
                 n_bins = min(12, max(5, int(np.sqrt(len(measurements)))))
                 ax2.hist(measurements.values, bins=n_bins, color='#58a6c9',
-                         edgecolor='#161b22', linewidth=0.8, rwidth=0.85, alpha=0.85)
-                ax2.set_facecolor('#161b22')
-                ax2.set_xlabel('Value', fontsize=11, color='#8b949e')
-                ax2.set_ylabel('Frequency', fontsize=11, color='#8b949e')
-                ax2.set_title('Histogram', fontsize=13, fontweight='bold', color='#c9d1d9')
-                ax2.tick_params(labelsize=10, colors='#8b949e')
-                ax2.grid(True, alpha=0.12, color='#484f58', linestyle='-', axis='y')
-                for spine in ax2.spines.values():
-                    spine.set_color('#30363d')
-                hist_pad = data_span * 0.3 if data_span > 0 else (abs(mean_val) * 1e-4 if mean_val != 0 else 1e-6)
-                ax2.set_xlim(data_min - hist_pad, data_max + hist_pad)
-                ax2.axvline(x=reference_val, color='#8cc68a', linestyle='-', linewidth=2, alpha=0.8, label='Reference')
+                         edgecolor='#11151c', lw=0.6, rwidth=0.85, alpha=0.85)
+                ax2.set_facecolor('#11151c')
+                ax2.set_xlabel('Value', fontsize=9, color='#6e7681')
+                ax2.set_ylabel('Freq', fontsize=9, color='#6e7681')
+                ax2.tick_params(labelsize=8, colors='#6e7681')
+                ax2.grid(True, alpha=0.08, color='#484f58', axis='y')
+                for sp in ax2.spines.values():
+                    sp.set_color('#21262d')
+                hp = data_span * 0.3 if data_span > 0 else 1e-6
+                ax2.set_xlim(data_min - hp, data_max + hp)
+                ax2.axvline(x=reference_val, color='#7dcea0', ls='-', lw=1.6,
+                            alpha=0.7, label='Ref')
                 if abs(mean_val - reference_val) > 1e-12:
-                    ax2.axvline(x=mean_val, color='#d4a574', linestyle=':', linewidth=1.5, alpha=0.9, label='Mean')
-                ax2.legend(fontsize=9, loc='best', facecolor='#161b22',
-                           edgecolor='#30363d', labelcolor='#c9d1d9')
+                    ax2.axvline(x=mean_val, color='#d4a574', ls=':', lw=1.3,
+                                alpha=0.8, label='Mean')
+                ax2.legend(fontsize=7, loc='best', facecolor='#11151c',
+                           edgecolor='#21262d', labelcolor='#8b949e', framealpha=.85)
 
-                plt.tight_layout(rect=[0, 0, 1, 0.95])
-
-                # Save to base64
+                plt.tight_layout(pad=1.2)
                 buf = BytesIO()
-                fig.savefig(buf, format='png', dpi=150, bbox_inches='tight', facecolor='#0d1117')
+                fig.savefig(buf, format='png', dpi=140, bbox_inches='tight',
+                            facecolor='#0b0e14')
                 plt.close(fig)
                 buf.seek(0)
                 img_b64 = base64.b64encode(buf.read()).decode('utf-8')
+
                 chart_images.append({
                     'dim': dim,
                     'img': img_b64,
-                    'status': status,
+                    'status': row['Status'],
                     'reference': reference_val,
                     'mean': mean_val,
-                    'max_diff': max_diff_val,
+                    'max_diff': float(row['Max diff']),
                     'stddev': std_val,
                     'study_var': float(row['6 x StdDev (SV)']),
-                    'tolerance': tolerance_val,
+                    'tolerance': float(row['Tolerance (Tol)']),
                     'bias': float(row['Bias']),
                     't_value': float(row['T']),
                     'p_value': float(row['PValue']),
@@ -309,74 +303,75 @@ class SimplifiedGageReporter(FileSystemEventHandler):
                     'ref_lower': ref_lower,
                 })
 
-            # ── Build HTML ──
-            # 2026 UI: Midnight blue dark mode + muted earth tones
-            BG_COLOR = '#0d1117'          # Deep midnight black
-            CARD_BG = '#161b22'            # Dark navy card
-            GRID_COLOR = '#21262d'         # Subtle separator
-            TEXT_COLOR = '#c9d1d9'         # Soft cool gray text
-            ACCENT_BLUE = '#58a6c9'        # Dusty ocean blue
-            ACCENT_GREEN = '#7c9a6e'       # Muted moss green
-            ACCENT_RED = '#c4655a'         # Soft terracotta
-            ACCENT_AMBER = '#d4a574'       # Warm clay/sand
-            TABLE_HEADER_BG = '#1c2633'    # Deep teal-navy
-            LABEL_COLOR = '#768390'        # Muted cool gray labels
+            # ── Build dimension summary table rows ──
+            summary_rows = ""
+            for i, d in enumerate(chart_images):
+                st_cls = 'status-accept' if d['status'] == 'ACCEPT' else 'status-reject'
+                cg_cls = 'kpi-good' if d['cg'] >= 1.33 else 'kpi-bad'
+                cgk_cls = 'kpi-good' if d['cgk'] >= 1.33 else 'kpi-bad'
+                vr = f"{d['var_repeat']:.1f}" if pd.notna(d['var_repeat']) else '—'
+                summary_rows += f"""<tr class="summary-row" data-idx="{i}">
+  <td class="cell-dim">{d['dim']}</td>
+  <td class="{st_cls}">{d['status']}</td>
+  <td class="{cg_cls}">{d['cg']:.2f}</td>
+  <td class="{cgk_cls}">{d['cgk']:.2f}</td>
+  <td class="cell-mono">{vr}%</td>
+  <td class="cell-mono">{d['bias']:+.6f}</td>
+  <td class="cell-dim cell-expand">▸</td>
+</tr>\n"""
 
-            charts_html = ""
-            for d in chart_images:
-                border_color = ACCENT_GREEN if d['status'] == 'ACCEPT' else ACCENT_RED
-                status_bg = ACCENT_GREEN if d['status'] == 'ACCEPT' else ACCENT_RED
-                status_fg = '#0d1117' if d['status'] == 'ACCEPT' else '#c9d1d9'
-
+            # ── Build expandable detail cards ──
+            detail_cards = ""
+            for i, d in enumerate(chart_images):
                 ref_fmt = f"{d['reference']:.8f}"
                 mean_fmt = f"{d['mean']:.8f}"
-                md_fmt = f"{d['max_diff']:.8f}"
                 std_fmt = f"{d['stddev']:.8f}"
                 sv_fmt = f"{d['study_var']:.8f}"
                 tol_fmt = f"{d['tolerance']:.8f}"
+                md_fmt = f"{d['max_diff']:.8f}"
                 bias_fmt = f"{d['bias']:.8f}"
                 t_fmt = f"{d['t_value']:.4f}" if math.isfinite(d['t_value']) else '∞'
                 p_fmt = f"{d['p_value']:.4f}"
                 vr_fmt = f"{d['var_repeat']:.2f}%" if pd.notna(d['var_repeat']) else 'N/A'
                 vrb_fmt = f"{d['var_repeat_bias']:.2f}%" if pd.notna(d['var_repeat_bias']) else 'N/A'
+                border = 'var(--color-status-accept)' if d['status'] == 'ACCEPT' else 'var(--color-status-reject)'
+                status_bg = border
 
-                charts_html += f"""
-                <div style="display:flex; gap:12px; background:{CARD_BG}; border-left:4px solid {border_color}; border-radius:8px; margin-bottom:16px; padding:12px; align-items:flex-start; flex-wrap:wrap;">
-                    <div style="flex:2; min-width:400px; max-width:999px;">
-                        <img src="data:image/png;base64,{d['img']}" style="width:100%; display:block; border-radius:4px;">
-                    </div>
-                    <div style="flex:1; min-width:260px;">
-                        <table style="width:100%; border-collapse:collapse; font-size:13px; border-radius:6px; overflow:hidden;">
-                            <tr style="background:{TABLE_HEADER_BG};">
-                                <th style="padding:10px 14px; text-align:left; color:{ACCENT_BLUE}; font-size:11px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid {GRID_COLOR};">Metric</th>
-                                <th style="padding:10px 14px; text-align:left; color:{ACCENT_BLUE}; font-size:11px; text-transform:uppercase; letter-spacing:1px; border-bottom:1px solid {GRID_COLOR};">Value</th>
-                            </tr>
-                            <tr style="background:rgba(88,166,201,0.10);"><td colspan="2" style="padding:8px 14px; color:{ACCENT_BLUE}; font-weight:700;">Basic Statistics</td></tr>
-                            <tr><td style="padding:8px 14px; color:{LABEL_COLOR};">Reference</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{ref_fmt}</td></tr>
-                            <tr style="background:rgba(255,255,255,0.02);"><td style="padding:8px 14px; color:{LABEL_COLOR};">Mean</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{mean_fmt}</td></tr>
-                            <tr><td style="padding:8px 14px; color:{LABEL_COLOR};">StdDev</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{std_fmt}</td></tr>
-                            <tr style="background:rgba(255,255,255,0.02);"><td style="padding:8px 14px; color:{LABEL_COLOR};">6 × StdDev (SV)</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{sv_fmt}</td></tr>
-                            <tr><td style="padding:8px 14px; color:{LABEL_COLOR};">Tolerance (Tol)</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{tol_fmt}</td></tr>
-                            <tr style="background:rgba(255,255,255,0.02);"><td style="padding:8px 14px; color:{LABEL_COLOR};">Max diff</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{md_fmt}</td></tr>
-                            <tr><td style="padding:8px 14px; color:{LABEL_COLOR};">Observations</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{d['observations']}</td></tr>
+                detail_cards += f"""
+<div class="detail-card open" id="detail-{i}" style="border-left-color:{border};">
+  <div class="detail-chart">
+    <img src="data:image/png;base64,{d['img']}" alt="Chart {d['dim']}">
+  </div>
+  <div class="detail-metrics">
+    <div class="metric-group">
+      <div class="metric-group-title" style="color:var(--color-accent-blue);">Basic Statistics</div>
+      <div class="metric-row"><span class="metric-label">Reference</span><span class="metric-value">{ref_fmt}</span></div>
+      <div class="metric-row"><span class="metric-label">Mean</span><span class="metric-value">{mean_fmt}</span></div>
+      <div class="metric-row"><span class="metric-label">StdDev</span><span class="metric-value">{std_fmt}</span></div>
+      <div class="metric-row"><span class="metric-label">6×StdDev (SV)</span><span class="metric-value">{sv_fmt}</span></div>
+      <div class="metric-row"><span class="metric-label">Tolerance</span><span class="metric-value">{tol_fmt}</span></div>
+      <div class="metric-row"><span class="metric-label">Max diff</span><span class="metric-value">{md_fmt}</span></div>
+      <div class="metric-row"><span class="metric-label">Observations</span><span class="metric-value">{d['observations']}</span></div>
+    </div>
+    <div class="metric-group">
+      <div class="metric-group-title" style="color:var(--color-status-accept);">Bias</div>
+      <div class="metric-row"><span class="metric-label">Bias</span><span class="metric-value">{bias_fmt}</span></div>
+      <div class="metric-row"><span class="metric-label">T</span><span class="metric-value">{t_fmt}</span></div>
+      <div class="metric-row"><span class="metric-label">PValue (Bias=0)</span><span class="metric-value">{p_fmt}</span></div>
+    </div>
+    <div class="metric-group">
+      <div class="metric-group-title" style="color:var(--color-accent-amber);">Capability</div>
+      <div class="metric-row"><span class="metric-label">Cg</span><span class="metric-value" style="font-size:15px;font-weight:600;">{d['cg']:.4f}</span></div>
+      <div class="metric-row"><span class="metric-label">Cgk</span><span class="metric-value" style="font-size:15px;font-weight:600;">{d['cgk']:.4f}</span></div>
+      <div class="metric-row"><span class="metric-label">%Var(Repeat)</span><span class="metric-value">{vr_fmt}</span></div>
+      <div class="metric-row"><span class="metric-label">%Var(R+Bias)</span><span class="metric-value">{vrb_fmt}</span></div>
+    </div>
+    <div class="metric-status" style="background:{status_bg};">{d['status']}</div>
+  </div>
+</div>\n"""
 
-                            <tr style="background:rgba(124,154,110,0.12);"><td colspan="2" style="padding:8px 14px; color:{ACCENT_GREEN}; font-weight:700;">Bias Study</td></tr>
-                            <tr><td style="padding:8px 14px; color:{LABEL_COLOR};">Bias</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{bias_fmt}</td></tr>
-                            <tr style="background:rgba(255,255,255,0.02);"><td style="padding:8px 14px; color:{LABEL_COLOR};">T</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{t_fmt}</td></tr>
-                            <tr><td style="padding:8px 14px; color:{LABEL_COLOR};">PValue (Bias = 0)</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{p_fmt}</td></tr>
-
-                            <tr style="background:rgba(212,165,116,0.12);"><td colspan="2" style="padding:8px 14px; color:{ACCENT_AMBER}; font-weight:700;">Capability</td></tr>
-                            <tr><td style="padding:8px 14px; color:{LABEL_COLOR};">Cg</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{d['cg']:.4f}</td></tr>
-                            <tr style="background:rgba(255,255,255,0.02);"><td style="padding:8px 14px; color:{LABEL_COLOR};">Cgk</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{d['cgk']:.4f}</td></tr>
-                            <tr><td style="padding:8px 14px; color:{LABEL_COLOR};">%Var (Repeatability)</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{vr_fmt}</td></tr>
-                            <tr style="background:rgba(255,255,255,0.02);"><td style="padding:8px 14px; color:{LABEL_COLOR};">%Var (Repeatability + Bias)</td><td style="padding:8px 14px; color:{TEXT_COLOR}; font-family:'Consolas',monospace;">{vrb_fmt}</td></tr>
-
-                            <tr><td style="padding:8px 14px; color:{LABEL_COLOR};">Status</td><td style="padding:8px 14px; background:{status_bg}; color:{status_fg}; font-weight:700; border-radius:4px; text-align:center;">{d['status']}</td></tr>
-                        </table>
-                    </div>
-                </div>
-                """
-
+            # ── Write HTML ──
+            timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
             dashboard_file = self.report_output.replace('.txt', '_dashboard.html')
             with open(dashboard_file, 'w', encoding='utf-8') as f:
                 f.write(f"""<!DOCTYPE html>
@@ -384,88 +379,329 @@ class SimplifiedGageReporter(FileSystemEventHandler):
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Type 1 Gage Study Dashboard</title>
+<title>Type 1 Gage Study — Dashboard</title>
 <style>
-  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-  body {{
-    background: {BG_COLOR};
-    color: {TEXT_COLOR};
-    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
-    padding: 28px 36px;
-    line-height: 1.5;
-  }}
-  .header {{
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 24px;
-    padding-bottom: 18px;
-    border-bottom: 1px solid {GRID_COLOR};
-  }}
-  .header h1 {{
-    font-size: 24px;
-    font-weight: 600;
-    color: {TEXT_COLOR};
-    letter-spacing: 0.3px;
-  }}
-  .header h1 span {{
-    background: linear-gradient(135deg, {ACCENT_BLUE}, #7c6dab);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }}
-  .header .date {{
-    color: {LABEL_COLOR};
-    font-size: 13px;
-    font-weight: 400;
-  }}
-  .stat-card {{
-    background: {CARD_BG};
-    border-radius: 10px;
-    padding: 18px 28px;
-    min-width: 150px;
-    border: 1px solid {GRID_COLOR};
-    transition: border-color 0.2s;
-  }}
-  .stat-card:hover {{ border-color: {ACCENT_BLUE}; }}
-  .stat-label {{
-    color: {LABEL_COLOR};
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 1.2px;
-    font-weight: 500;
-    margin-bottom: 4px;
-  }}
-  .stat-value {{
-    font-size: 34px;
-    font-weight: 700;
-    letter-spacing: -0.5px;
-  }}
+/* ═══════════════════════════════════════════════
+   DESIGN TOKENS — Semantic, purpose-based
+   ═══════════════════════════════════════════════ */
+:root {{
+  /* color.background */
+  --color-bg-base:        #0b0e14;
+  --color-bg-surface:     #131720;
+  --color-bg-elevated:    #1a1f2b;
+  --color-bg-hover:       #1e2533;
+
+  /* color.border */
+  --color-border-subtle:  #1e2430;
+  --color-border-default: #2a3140;
+
+  /* color.text */
+  --color-text-primary:   #d1d5db;
+  --color-text-secondary: #6e7681;
+  --color-text-muted:     #484f58;
+  --color-text-inverse:   #0b0e14;
+
+  /* color.accent */
+  --color-accent-blue:    #58a6c9;
+  --color-accent-amber:   #d4a574;
+
+  /* color.status */
+  --color-status-accept:  #7dcea0;
+  --color-status-reject:  #e07070;
+  --color-status-warn:    #d4a574;
+
+  /* spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-container: 28px 32px;
+
+  /* typography */
+  --font-sans:  'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono:  'Cascadia Code', 'Consolas', 'Fira Code', monospace;
+  --font-kpi:   clamp(36px, 5vw, 48px);
+  --font-body:  13px;
+  --font-small: 11px;
+
+  /* radius */
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+}}
+
+/* ═══════════════════════════════════════════════
+   RESET + BASE
+   ═══════════════════════════════════════════════ */
+*, *::before, *::after {{ margin:0; padding:0; box-sizing:border-box; }}
+html {{ font-size: 16px; }}
+body {{
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  padding: var(--space-container);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}}
+
+/* ═══════════════════════════════════════════════
+   HEADER — F-pattern entry point
+   ═══════════════════════════════════════════════ */
+.dash-header {{
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--color-border-subtle);
+  margin-bottom: var(--space-lg);
+}}
+.dash-title {{
+  font-size: 20px; font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: .2px;
+}}
+.dash-title em {{
+  font-style: normal;
+  background: linear-gradient(135deg, var(--color-accent-blue), #9b8ec4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}}
+.dash-date {{ color: var(--color-text-secondary); font-size: var(--font-small); }}
+
+/* ═══════════════════════════════════════════════
+   KPI ROW — 80/20: Pass Rate 40% larger, top-left
+   ═══════════════════════════════════════════════ */
+.kpi-row {{
+  display: grid;
+  grid-template-columns: 1.7fr repeat(4, 1fr);
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}}
+.kpi-card {{
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-md) var(--space-lg);
+  transition: border-color .15s;
+}}
+.kpi-card:hover {{ border-color: var(--color-accent-blue); }}
+.kpi-label {{
+  color: var(--color-text-secondary);
+  font-size: var(--font-small);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  font-weight: 500;
+  margin-bottom: 2px;
+}}
+.kpi-value {{
+  font-weight: 700;
+  letter-spacing: -.5px;
+  line-height: 1.1;
+}}
+.kpi-primary .kpi-value {{ font-size: var(--font-kpi); }}
+.kpi-secondary .kpi-value {{ font-size: clamp(26px, 3.5vw, 34px); }}
+.kpi-sub {{
+  color: var(--color-text-muted);
+  font-size: var(--font-small);
+  margin-top: 2px;
+}}
+
+/* ═══════════════════════════════════════════════
+   SUMMARY TABLE — cause-effect at a glance
+   ═══════════════════════════════════════════════ */
+.summary-table {{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-body);
+  margin-bottom: var(--space-lg);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}}
+.summary-table th {{
+  background: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 600;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border-default);
+  position: sticky; top: 0; z-index: 2;
+}}
+.summary-table td {{
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  transition: background .12s;
+}}
+.summary-row {{ cursor: pointer; }}
+.summary-row:hover td {{ background: var(--color-bg-hover); }}
+
+.cell-dim {{ color: var(--color-text-primary); font-weight: 600; }}
+.cell-mono {{ font-family: var(--font-mono); font-size: 12px; color: var(--color-text-primary); }}
+.cell-expand {{ text-align:center; color:var(--color-text-muted); font-size:12px; transition:transform .2s; }}
+.row-open .cell-expand {{ transform: rotate(90deg); color:var(--color-accent-blue); }}
+
+.status-accept {{
+  color: var(--color-status-accept);
+  font-weight: 700; font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}}
+.status-reject {{
+  color: var(--color-status-reject);
+  font-weight: 700; font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}}
+.kpi-good {{ color: var(--color-status-accept); font-family: var(--font-mono); font-weight:600; }}
+.kpi-bad  {{ color: var(--color-status-reject); font-family: var(--font-mono); font-weight:600; }}
+
+/* ═══════════════════════════════════════════════
+   DETAIL CARD — Progressive Disclosure
+   ═══════════════════════════════════════════════ */
+.detail-card {{
+  background: var(--color-bg-surface);
+  border-left: 4px solid var(--color-status-accept);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-md);
+  padding: var(--space-md);
+  gap: var(--space-md);
+  display: flex;
+  flex-wrap: wrap;
+}}
+.detail-card.highlight {{
+  animation: fadeSlide .25s ease-out;
+  border-color: var(--color-accent-blue) !important;
+}}
+@keyframes fadeSlide {{
+  from {{ opacity: 0; transform: translateY(-8px); }}
+  to   {{ opacity: 1; transform: translateY(0); }}
+}}
+.detail-chart {{
+  flex: 2; min-width: 380px;
+}}
+.detail-chart img {{
+  width: 100%; display: block; border-radius: var(--radius-sm);
+}}
+.detail-metrics {{
+  flex: 1; min-width: 250px;
+  display: flex; flex-direction: column; gap: var(--space-sm);
+}}
+.metric-group {{
+  background: var(--color-bg-elevated);
+  border-radius: var(--radius-sm);
+  padding: var(--space-sm) var(--space-md);
+}}
+.metric-group-title {{
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+  margin-bottom: var(--space-xs);
+}}
+.metric-row {{
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-size: 12px;
+}}
+.metric-label {{ color: var(--color-text-secondary); }}
+.metric-value {{ color: var(--color-text-primary); font-family: var(--font-mono); font-size: 12px; }}
+.metric-status {{
+  align-self: stretch;
+  text-align: center;
+  font-weight: 800;
+  font-size: 13px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-inverse);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}}
+
+/* ═══════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════ */
+@media (max-width: 900px) {{
+  .kpi-row {{ grid-template-columns: 1fr 1fr; }}
+  .detail-card {{ flex-direction: column; }}
+}}
 </style>
 </head>
 <body>
-  <div class="header">
-    <h1><span>Type 1 Gage Study</span> Dashboard</h1>
-    <span class="date">{time.strftime('%Y-%m-%d %H:%M:%S')}</span>
+
+<!-- ─── HEADER ─── -->
+<div class="dash-header">
+  <h1 class="dash-title"><em>Type 1 Gage Study</em> Dashboard</h1>
+  <span class="dash-date">{timestamp}</span>
+</div>
+
+<!-- ─── KPI ROW: F-pattern, primary KPI top-left, 40% larger ─── -->
+<div class="kpi-row">
+  <div class="kpi-card kpi-primary" style="border-left:4px solid {'var(--color-status-accept)' if pass_rate >= 75 else 'var(--color-status-reject)'};">
+    <div class="kpi-label">Pass Rate</div>
+    <div class="kpi-value" style="color:{'var(--color-status-accept)' if pass_rate >= 75 else 'var(--color-status-reject)'};">{pass_rate:.0f}%</div>
+    <div class="kpi-sub">{accepted}/{num_dims} dimensions</div>
   </div>
-  <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:24px;">
-    <div class="stat-card" style="border-left:3px solid {ACCENT_BLUE};">
-      <div class="stat-label">Dimensions</div>
-      <div class="stat-value" style="color:{ACCENT_BLUE};">{num_dims}</div>
-    </div>
-    <div class="stat-card" style="border-left:3px solid {ACCENT_GREEN};">
-      <div class="stat-label">Accepted</div>
-      <div class="stat-value" style="color:{ACCENT_GREEN};">{accepted}</div>
-    </div>
-    <div class="stat-card" style="border-left:3px solid {ACCENT_RED};">
-      <div class="stat-label">Rejected</div>
-      <div class="stat-value" style="color:{ACCENT_RED};">{rejected}</div>
-    </div>
-    <div class="stat-card" style="border-left:3px solid {ACCENT_AMBER};">
-      <div class="stat-label">Pass Rate</div>
-      <div class="stat-value" style="color:{ACCENT_AMBER};">{accepted*100//num_dims if num_dims else 0}%</div>
-    </div>
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-status-accept);">
+    <div class="kpi-label">Accepted</div>
+    <div class="kpi-value" style="color:var(--color-status-accept);">{accepted}</div>
   </div>
-  {charts_html}
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-status-reject);">
+    <div class="kpi-label">Rejected</div>
+    <div class="kpi-value" style="color:var(--color-status-reject);">{rejected}</div>
+  </div>
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-status-accept);">
+    <div class="kpi-label">Best Cgk</div>
+    <div class="kpi-value" style="color:var(--color-status-accept);">{best['Cgk']:.2f}</div>
+    <div class="kpi-sub">{best['Gage Item']}</div>
+  </div>
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-status-reject);">
+    <div class="kpi-label">Worst Cgk</div>
+    <div class="kpi-value" style="color:var(--color-status-reject);">{worst['Cgk']:.2f}</div>
+    <div class="kpi-sub">{worst['Gage Item']}</div>
+  </div>
+</div>
+
+<!-- ─── SUMMARY TABLE: cause-effect at a glance ─── -->
+<table class="summary-table">
+  <thead>
+    <tr>
+      <th>Dimension</th><th>Status</th><th>Cg</th><th>Cgk</th>
+      <th>%Var(R)</th><th>Bias</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {summary_rows}
+  </tbody>
+</table>
+
+<!-- ─── DETAIL CARDS: Progressive Disclosure (hidden by default) ─── -->
+<div id="detail-container">
+{detail_cards}
+</div>
+
+<!-- ─── JS: Toggle disclosure ─── -->
+<script>
+document.querySelectorAll('.summary-row').forEach(function(row) {{
+  row.addEventListener('click', function() {{
+    var idx = this.dataset.idx;
+    var card = document.getElementById('detail-' + idx);
+
+    // Remove highlight from all
+    document.querySelectorAll('.detail-card').forEach(function(c) {{ c.classList.remove('highlight'); }});
+    document.querySelectorAll('.summary-row').forEach(function(r) {{ r.classList.remove('row-open'); }});
+
+    // Highlight and scroll to clicked
+    card.classList.add('highlight');
+    this.classList.add('row-open');
+    card.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+  }});
+}});
+</script>
+
 </body>
 </html>""")
             print(f"Dashboard created: {dashboard_file}")
