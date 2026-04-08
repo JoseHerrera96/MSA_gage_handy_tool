@@ -1,6 +1,6 @@
 ==============================================
 AUTOMATED TYPE 1 GAGE STUDY (MINITAB-STYLE)
-Date: 2026-04-08 14:20:11
+Date: 2026-04-08 15:24:18
 ==============================================
 
   Gage Item  Reference       Mean        Bias       T PValue     StdDev 6 x StdDev (SV) Tolerance (Tol)   Max diff     Cg    Cgk %Var(Repeatability) %Var(Repeatability and Bias) Status

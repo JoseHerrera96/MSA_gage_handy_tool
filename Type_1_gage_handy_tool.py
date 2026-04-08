@@ -1,7 +1,7 @@
 """Entry point for the Type 1 Gage Study pipeline.
 
-This is the only script you need to run.  Drop your raw OGP data file
-as ``OGP DATA.txt`` in this folder and execute::
+This is the only script you need to run.  Drop your raw data file
+as ``RAW DATA.txt`` in this folder and execute::
 
     python Type_1_gage_handy_tool.py
 
@@ -35,7 +35,7 @@ from gage_tracer.calculations import calculate_type1_metrics     # noqa: E402  #
 from gage_tracer.visualization import create_dashboard           # noqa: E402  # type: ignore[import-not-found]
 
 # Input / output file paths — all live in the project root for easy access.
-OGP_RAW_FILE: Path = PROJECT_ROOT / "OGP DATA.txt"
+RAW_FILE: Path = PROJECT_ROOT / "RAW DATA.txt"
 GAGE_DATA_FILE: Path = PROJECT_ROOT / "gage data.txt"
 SUMMARY_TXT: Path = PROJECT_ROOT / "Gage_Study_Summary.txt"
 DASHBOARD_HTML: Path = PROJECT_ROOT / "Gage_Study_Summary_dashboard.html"
@@ -94,11 +94,11 @@ def run() -> None:
     print("=" * 50)
 
     # Step 1 — Parse raw OGP data into a clean TSV table.
-    if OGP_RAW_FILE.exists():
-        print(f"\n[1/3] Parsing raw OGP data: {OGP_RAW_FILE.name}")
-        transform_ogp_data(OGP_RAW_FILE, GAGE_DATA_FILE)
+    if RAW_FILE.exists():
+        print(f"\n[1/3] Parsing raw OGP data: {RAW_FILE.name}")
+        transform_ogp_data(RAW_FILE, GAGE_DATA_FILE)
     else:
-        print(f"\n[1/3] Raw OGP file not found ({OGP_RAW_FILE.name}); "
+        print(f"\n[1/3] Raw OGP file not found ({RAW_FILE.name}); "
               f"using existing {GAGE_DATA_FILE.name}")
 
     if not GAGE_DATA_FILE.exists():

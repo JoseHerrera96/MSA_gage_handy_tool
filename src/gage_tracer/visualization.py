@@ -319,7 +319,7 @@ def _build_detail_cards(chart_images: list[dict[str, Any]]) -> str:
 # ---------------------------------------------------------------------------
 
 _CSS_TEMPLATE = """\
-/* Samtec corporate light theme — semantic design tokens */
+/* Neutral light theme — semantic design tokens */
 :root {
   /* Brand colors */
   --color-brand-primary:  #FF6135;  /* Vibrant orange — CTAs, primary KPI emphasis */
@@ -366,13 +366,12 @@ body {
   line-height: 1.55; -webkit-font-smoothing: antialiased;
 }
 
-/* Header — logo left, title center, date right */
+/* Header — title and timestamp */
 .dash-header {
   display:flex; align-items:center; gap:var(--space-md);
   padding-bottom:var(--space-md); border-bottom:2px solid var(--color-border-subtle);
   margin-bottom:var(--space-lg);
 }
-.dash-logo { height:40px; width:auto; flex-shrink:0; }  /* Logo capped at 40px */
 .dash-title {
   font-size:20px; font-weight:600; color:var(--color-text-primary);
   letter-spacing:.2px; flex:1;
@@ -489,16 +488,7 @@ def create_dashboard(
             ``calculate_type1_metrics``.
         output_path: Destination path for the ``.html`` file.
     """
-    import base64 as _b64
     import time
-
-    # Embed the logo as base-64 so the HTML stays self-contained.
-    logo_path = output_path.parent / "Samtec_logo_png.png"
-    if logo_path.exists():
-        logo_b64 = _b64.b64encode(logo_path.read_bytes()).decode("utf-8")
-        logo_tag = f'<img class="dash-logo" src="data:image/png;base64,{logo_b64}" alt="Samtec">'
-    else:
-        logo_tag = ""
 
     num_dims: int = len(summary_data)
     accepted: int = sum(1 for s in summary_data if s["Status"] == "ACCEPT")
@@ -529,7 +519,6 @@ def create_dashboard(
 <body>
 
 <div class="dash-header">
-  {logo_tag}
   <h1 class="dash-title"><em>Type 1 Gage Study</em> Dashboard</h1>
   <span class="dash-date">{timestamp}</span>
 </div>
