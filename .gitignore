@@ -26,3 +26,8 @@ desktop.ini
 # ── Project-specific binary / proprietary formats ──
 *.qpf
 *.mwx
+
+# ── Generated data files ──
+gage data.txt
+Gage_Study_Summary.txt
+RAW DATA.txt
