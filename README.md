@@ -1,21 +1,25 @@
 # Type 1 Gage Study — Automated Report Tool
 
-Independent Python tool for processing raw **OGP SmartScope** measurement
-data, running a *Type 1 Gage Study* statistical analysis, and generating
-an interactive HTML dashboard.
+Independent Python tool for processing raw measurement data, running a 
+*Type 1 Gage Study* statistical analysis, and generating an interactive 
+HTML dashboard.
 
-> This repository is a **generic, standalone analysis utility** for
-> educational use and professional demonstration. It is **not affiliated
-> with, endorsed by, or released on behalf of any company or employer**.
+> This repository is a **generic, standalone analysis utility**. It is **not 
+> affiliated with, endorsed by, or released on behalf of any company or employer**.
 
 ---
 
 ## Quick Start
 
-1. Export **your own** measurement file from an OGP SmartScope system using
-   its standard text-output format.
-2. Save that file in this folder as **`OGP DATA.txt`**.
-3. Run the main script:
+1. For the first time install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+2. Export **your own** measurement file from your measurement system using its standard text-output format.
+3. Save that file in this folder as **`RAW DATA.txt`**.
+4. Run the main script:
 
 ```bash
 python Type_1_gage_handy_tool.py
@@ -30,27 +34,6 @@ python Type_1_gage_handy_tool.py
 | `Gage_Study_Summary_dashboard.html` | Interactive HTML dashboard     |
 
 Open the `.html` file in any browser to review the results.
-
----
-
-## Project Structure
-
-```text
-Data_tracer/
-├── Type_1_gage_handy_tool.py          ← Entry point
-├── OGP DATA.txt                       ← User-supplied OGP export
-├── gage data.txt                      ← Generated parsed data
-├── Gage_Study_Summary.txt             ← Generated text report
-├── Gage_Study_Summary_dashboard.html  ← Generated dashboard
-├── src/gage_tracer/
-│   ├── data_parser.py                 ← OGP file parsing
-│   ├── calculations.py                ← Statistical calculations
-│   └── visualization.py               ← Charts and HTML output
-├── scripts/                           ← Analysis utilities
-├── tests/                             ← Verification tests
-├── requirements.txt
-└── README.md
-```
 
 ---
 
