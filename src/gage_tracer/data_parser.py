@@ -50,10 +50,12 @@ def _parse_ogp_data(
             elif line.startswith('":END"'):
                 if current_repetition:
                     all_repetitions.append(current_repetition)
+                    current_repetition = {}
             # Skip known metadata lines; treat everything else as a
             # dimension row (supports any dimension name like gp_height,
             # coplanarity, C5, etc.).
             elif line.startswith('"') and not line.startswith('":') and not line.startswith('"PATTERN') and not line.startswith('"DISPLAY') and not line.startswith('"UNIT'):
+                
                 parts = line.split("\t")
                 if len(parts) >= 5:
                     raw_dim_name = parts[0].strip('"')
@@ -63,6 +65,13 @@ def _parse_ogp_data(
                         nominal = float(parts[2])
                         upper_tol = float(parts[3])
                         lower_tol = float(parts[4])
+
+                        # If this dimension is already in the current
+                        # repetition, a new cycle has started (handles
+                        # files without :END markers).
+                        if dim_name in current_repetition:
+                            all_repetitions.append(current_repetition)
+                            current_repetition = {}
 
                         current_repetition[dim_name] = measurement
 
@@ -74,6 +83,10 @@ def _parse_ogp_data(
                             }
                     except ValueError:
                         continue
+
+    # Flush the last repetition if the file didn't end with :END
+    if current_repetition:
+        all_repetitions.append(current_repetition)
 
     return all_repetitions, dimension_specs
 
