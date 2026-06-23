@@ -26,6 +26,9 @@ def _parse_ogp_data(
     repetitions.  Each data line contains the dimension name, measured
     value, nominal, and upper/lower tolerances (tab-separated).
 
+    Supports files without markers by detecting cycle boundaries when a
+    dimension repeats (indicating a new cycle).
+
     Lines that start with known metadata prefixes (PATTERN, DISPLAY,
     UNIT, or :markers) are skipped, so any dimension name is accepted.
 
@@ -40,46 +43,72 @@ def _parse_ogp_data(
     all_repetitions: list[dict[str, float]] = []
     current_repetition: dict[str, float] = {}
     dimension_specs: dict[str, dict[str, float]] = {}
+    first_dimension_in_cycle: str | None = None
+    has_explicit_markers = False
 
     with open(input_file, "r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
 
             if line.startswith('":BEGIN"'):
+                has_explicit_markers = True
                 current_repetition = {}
+                first_dimension_in_cycle = None
             elif line.startswith('":END"'):
+                has_explicit_markers = True
                 if current_repetition:
                     all_repetitions.append(current_repetition)
                     current_repetition = {}
+                    first_dimension_in_cycle = None
             # Skip known metadata lines; treat everything else as a
             # dimension row (supports any dimension name like gp_height,
             # coplanarity, C5, etc.).
             elif line.startswith('"') and not line.startswith('":') and not line.startswith('"PATTERN') and not line.startswith('"DISPLAY') and not line.startswith('"UNIT'):
                 
                 parts = line.split("\t")
-                if len(parts) >= 5:
+                # Handle both formats: with specs (5+ parts) and without (2 parts)
+                if len(parts) >= 2:
                     raw_dim_name = parts[0].strip('"')
                     dim_name = raw_dim_name.replace("_OUT1", "")
                     try:
                         measurement = float(parts[1])
-                        nominal = float(parts[2])
-                        upper_tol = float(parts[3])
-                        lower_tol = float(parts[4])
 
-                        # If this dimension is already in the current
-                        # repetition, a new cycle has started (handles
-                        # files without :END markers).
+                        # Detect cycle boundary: if this dimension already
+                        # exists in current repetition, start a new cycle
+                        # (works for files without explicit markers)
                         if dim_name in current_repetition:
-                            all_repetitions.append(current_repetition)
+                            if current_repetition:
+                                all_repetitions.append(current_repetition)
                             current_repetition = {}
+                            first_dimension_in_cycle = dim_name
+
+                        # Track the first dimension we see in each cycle
+                        if first_dimension_in_cycle is None:
+                            first_dimension_in_cycle = dim_name
 
                         current_repetition[dim_name] = measurement
 
-                        if dim_name not in dimension_specs:
+                        # Only update specs if we have full spec data (5+ parts)
+                        if len(parts) >= 5:
+                            try:
+                                nominal = float(parts[2])
+                                upper_tol = float(parts[3])
+                                lower_tol = float(parts[4])
+
+                                if dim_name not in dimension_specs:
+                                    dimension_specs[dim_name] = {
+                                        "nominal": nominal,
+                                        "upper_tol": upper_tol,
+                                        "lower_tol": lower_tol,
+                                    }
+                            except (ValueError, IndexError):
+                                pass
+                        # For files without specs, initialize default specs
+                        elif dim_name not in dimension_specs:
                             dimension_specs[dim_name] = {
-                                "nominal": nominal,
-                                "upper_tol": upper_tol,
-                                "lower_tol": lower_tol,
+                                "nominal": "",
+                                "upper_tol": "",
+                                "lower_tol": "",
                             }
                     except ValueError:
                         continue
