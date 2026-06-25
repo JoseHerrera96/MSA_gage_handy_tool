@@ -1,14 +1,35 @@
-"""gage_tracer — Type 1 Gage Study analysis package.
+"""gage_tracer — Measurement System Analysis package.
 
 Public API re-exported here for convenience:
 
+Type 1 Gage Study:
 - ``transform_ogp_data``: Parse raw OGP files into a structured TSV.
 - ``calculate_type1_metrics``: Compute Cg, Cgk, bias, %Var, etc.
 - ``create_dashboard``: Generate the interactive HTML dashboard.
+
+Paired T-Test:
+- ``parse_paired_measurements``: Parse two measurement files for system comparison.
+- ``export_paired_data``: Export paired measurements to a structured TSV.
+- ``calculate_paired_ttest_metrics``: Compute t-test statistics, p-values, CI.
+- ``create_paired_ttest_dashboard``: Generate the interactive HTML dashboard.
 """
 
 from src.gage_tracer.data_parser import transform_ogp_data
 from src.gage_tracer.calculations import calculate_type1_metrics
 from src.gage_tracer.visualization import create_dashboard
+from src.gage_tracer.paired_ttest import (
+    parse_paired_measurements,
+    export_paired_data,
+    calculate_paired_ttest_metrics,
+    create_paired_ttest_dashboard,
+)
 
-__all__ = ["transform_ogp_data", "calculate_type1_metrics", "create_dashboard"]
+__all__ = [
+    "transform_ogp_data",
+    "calculate_type1_metrics",
+    "create_dashboard",
+    "parse_paired_measurements",
+    "export_paired_data",
+    "calculate_paired_ttest_metrics",
+    "create_paired_ttest_dashboard",
+]

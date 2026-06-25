@@ -14,6 +14,7 @@ It will produce three output files in the same directory:
 
 from __future__ import annotations
 
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -34,11 +35,21 @@ from gage_tracer.data_parser import transform_ogp_data          # noqa: E402  # 
 from gage_tracer.calculations import calculate_type1_metrics     # noqa: E402  # type: ignore[import-not-found]
 from gage_tracer.visualization import create_dashboard           # noqa: E402  # type: ignore[import-not-found]
 
-# Input / output file paths — all live in the project root for easy access.
-RAW_FILE: Path = PROJECT_ROOT / "RAW DATA.txt"
-GAGE_DATA_FILE: Path = PROJECT_ROOT / "gage data.txt"
-SUMMARY_TXT: Path = PROJECT_ROOT / "Gage_Study_Summary.txt"
-DASHBOARD_HTML: Path = PROJECT_ROOT / "Gage_Study_Summary_dashboard.html"
+# Structured directories for Type 1 output files.
+GAGE_ROOT: Path = PROJECT_ROOT / "gage_type1"
+GAGE_RAW_DIR: Path = GAGE_ROOT / "raw"
+GAGE_DATA_DIR: Path = GAGE_ROOT / "data"
+GAGE_REPORT_DIR: Path = GAGE_ROOT / "reports"
+GAGE_DASHBOARD_DIR: Path = GAGE_ROOT / "dashboards"
+
+RAW_FILE: Path = GAGE_RAW_DIR / "RAW DATA.txt"
+ROOT_RAW_FILE: Path = PROJECT_ROOT / "RAW DATA.txt"
+GAGE_DATA_FILE: Path = GAGE_DATA_DIR / "gage data.txt"
+ROOT_GAGE_DATA_FILE: Path = PROJECT_ROOT / "gage data.txt"
+SUMMARY_TXT: Path = GAGE_REPORT_DIR / "Gage_Study_Summary.txt"
+ROOT_SUMMARY_TXT: Path = PROJECT_ROOT / "Gage_Study_Summary.txt"
+DASHBOARD_HTML: Path = GAGE_DASHBOARD_DIR / "Gage_Study_Summary_dashboard.html"
+ROOT_DASHBOARD_HTML: Path = PROJECT_ROOT / "Gage_Study_Summary_dashboard.html"
 
 
 def _generate_text_report(
@@ -93,13 +104,39 @@ def run() -> None:
     print("  Type 1 Gage Study — Automated Report")
     print("=" * 50)
 
+    # Ensure structured output directories exist.
+    GAGE_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    GAGE_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    GAGE_REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    GAGE_DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Migrate legacy root outputs into structured dirs if needed.
+    if not GAGE_DATA_FILE.exists() and ROOT_GAGE_DATA_FILE.exists():
+        shutil.move(str(ROOT_GAGE_DATA_FILE), str(GAGE_DATA_FILE))
+        print(f"      Migrated legacy parsed data to {GAGE_DATA_FILE.relative_to(PROJECT_ROOT)}")
+    if not SUMMARY_TXT.exists() and ROOT_SUMMARY_TXT.exists():
+        shutil.move(str(ROOT_SUMMARY_TXT), str(SUMMARY_TXT))
+        print(f"      Migrated legacy report to {SUMMARY_TXT.relative_to(PROJECT_ROOT)}")
+    if not DASHBOARD_HTML.exists() and ROOT_DASHBOARD_HTML.exists():
+        shutil.move(str(ROOT_DASHBOARD_HTML), str(DASHBOARD_HTML))
+        print(f"      Migrated legacy dashboard to {DASHBOARD_HTML.relative_to(PROJECT_ROOT)}")
+
     # Step 1 — Parse raw OGP data into a clean TSV table.
     if RAW_FILE.exists():
-        print(f"\n[1/3] Parsing raw OGP data: {RAW_FILE.name}")
-        transform_ogp_data(RAW_FILE, GAGE_DATA_FILE)
+        raw_path = RAW_FILE
+    elif ROOT_RAW_FILE.exists():
+        raw_path = ROOT_RAW_FILE
+        shutil.copy2(ROOT_RAW_FILE, RAW_FILE)
+        print(f"      Migrated raw input to structured folder: {RAW_FILE.relative_to(PROJECT_ROOT)}")
     else:
-        print(f"\n[1/3] Raw OGP file not found ({RAW_FILE.name}); "
-              f"using existing {GAGE_DATA_FILE.name}")
+        raw_path = None
+
+    if raw_path is not None:
+        print(f"\n[1/3] Parsing raw OGP data: {raw_path.name}")
+        transform_ogp_data(raw_path, GAGE_DATA_FILE)
+    else:
+        print(f"\n[1/3] Raw OGP file not found ({RAW_FILE.name} or {ROOT_RAW_FILE.name});")
+        print(f"      using existing {GAGE_DATA_FILE.relative_to(PROJECT_ROOT)}")
 
     if not GAGE_DATA_FILE.exists():
         print(f"ERROR: {GAGE_DATA_FILE.name} not found. Aborting.")

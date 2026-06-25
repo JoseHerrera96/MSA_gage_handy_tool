@@ -32,3 +32,9 @@ gage data.txt
 Gage_Study_Summary.txt
 RAW DATA.txt
 Gage_Study_Summary_dashboard.html
+PAIRED DATA SYSTEM A.txt
+PAIRED DATA SYSTEM B.txt
+paired_data.txt
+Paired_T_Test_Summary.txt
+paired_ttest/**/*.txt
+gage_type1/**/*.txt
