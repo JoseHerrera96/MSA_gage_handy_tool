@@ -660,9 +660,19 @@ def create_paired_ttest_dashboard(
         
         .chart-grid {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(550px, 1fr));
-            gap: 30px;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
             margin-bottom: 40px;
+        }}
+        
+        .summary-card {{
+            background: var(--color-card);
+            border: 1px solid var(--color-border);
+            border-radius: 12px;
+            padding: 28px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+            max-width: 1080px;
+            margin: 0 auto 40px;
         }}
         
         .chart-card {{
@@ -776,19 +786,18 @@ def create_paired_ttest_dashboard(
             </p>
         </div>
         
+        <!-- Summary Statistics Card -->
+        <div class="summary-card">
+            <div class="chart-title">Summary Statistics</div>
+            <img src="data:image/png;base64,{img_stats}" class="chart-img" alt="Statistics Table">
+        </div>
+        
         <!-- Charts -->
         <div class="chart-grid">
-            <div class="chart-card">
-                <div class="chart-title">Summary Statistics</div>
-                <img src="data:image/png;base64,{img_stats}" class="chart-img" alt="Statistics Table">
-            </div>
             <div class="chart-card">
                 <div class="chart-title">Histogram of Differences</div>
                 <img src="data:image/png;base64,{img_histogram}" class="chart-img" alt="Histogram of Differences">
             </div>
-        </div>
-        
-        <div class="chart-grid">
             <div class="chart-card">
                 <div class="chart-title">Individual Value Plot: System A vs System B</div>
                 <img src="data:image/png;base64,{img_scatter}" class="chart-img" alt="Individual Value Plot">
