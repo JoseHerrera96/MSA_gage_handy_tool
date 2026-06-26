@@ -8,17 +8,42 @@ downstream analysis.
 
 from __future__ import annotations
 
+from io import StringIO, TextIOBase
 from pathlib import Path
+from typing import IO, TextIO, Union
 
 import pandas as pd
+
+_InputSource = Union[Path, str, TextIO, IO[bytes]]
 
 
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
 
+def _open_text_input(input_file: _InputSource) -> TextIO:
+    """Open a text input source from a path or in-memory text/binary stream."""
+    if isinstance(input_file, (Path, str)):
+        return open(input_file, "r", encoding="utf-8")
+
+    if hasattr(input_file, "read"):
+        if isinstance(input_file, (StringIO, TextIOBase)):
+            try:
+                input_file.seek(0)
+            except Exception:
+                pass
+            return input_file
+
+        raw = input_file.read()
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", errors="replace")
+        return StringIO(raw)
+
+    raise TypeError("input_file must be a path or a text/binary stream")
+
+
 def _parse_ogp_data(
-    input_file: Path,
+    input_file: _InputSource,
 ) -> tuple[list[dict[str, float]], dict[str, dict[str, float]]]:
     """Read a raw OGP file and split it into repetitions + specs.
 
@@ -46,7 +71,7 @@ def _parse_ogp_data(
     first_dimension_in_cycle: str | None = None
     has_explicit_markers = False
 
-    with open(input_file, "r", encoding="utf-8") as fh:
+    with _open_text_input(input_file) as fh:
         for line in fh:
             line = line.strip()
 
@@ -225,16 +250,22 @@ def _format_output_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 # Public API
 # ---------------------------------------------------------------------------
 
-def transform_ogp_data(input_file: Path, output_file: Path) -> None:
-    """Convert a raw OGP file into a structured TSV.
+def transform_ogp_data(
+    input_file: _InputSource,
+    output_file: Path | None = None,
+) -> pd.DataFrame:
+    """Convert a raw OGP source into a structured TSV or return a DataFrame.
 
-    This is the main function of the module.  It reads the raw OGP
+    This is the main function of the module. It reads the raw OGP
     measurements, runs basic statistics, and writes an interleaved
-    data + stats table that the rest of the pipeline consumes.
+    data + stats table to disk if ``output_file`` is provided.
 
     Args:
-        input_file: Path to the raw OGP data file.
-        output_file: Where to write the resulting TSV.
+        input_file: Path, filename, or in-memory text/binary stream.
+        output_file: Where to write the resulting TSV, or ``None`` to skip.
+
+    Returns:
+        The parsed and formatted DataFrame.
     """
     all_repetitions, specs = _parse_ogp_data(input_file)
     df = pd.DataFrame(all_repetitions)
@@ -242,8 +273,10 @@ def transform_ogp_data(input_file: Path, output_file: Path) -> None:
     combined_df = _build_interleaved_output(df, stats_df)
     combined_df = _format_output_dataframe(combined_df)
 
-    combined_df.to_csv(output_file, sep="\t", index=False)
+    if output_file is not None:
+        combined_df.to_csv(output_file, sep="\t", index=False)
+        print(f"Success! Processed {len(all_repetitions)} repetitions.")
+        print(f"Detected {len(df.columns)} unique dimensions: {', '.join(df.columns)}")
+        print(f"Data saved to '{output_file}'")
 
-    print(f"Success! Processed {len(all_repetitions)} repetitions.")
-    print(f"Detected {len(df.columns)} unique dimensions: {', '.join(df.columns)}")
-    print(f"Data saved to '{output_file}'")
+    return combined_df

@@ -22,8 +22,8 @@ from typing import Any
 
 import pandas as pd
 
-# Root directory — everything is resolved relative to where this script lives.
-PROJECT_ROOT: Path = Path(__file__).resolve().parent
+# Root directory — resolve the repository root from inside cli/.
+PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 
 # Add src/ to the import path so we can use the gage_tracer package
 # without needing a pip install.
