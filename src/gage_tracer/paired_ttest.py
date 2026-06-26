@@ -13,9 +13,9 @@ Design Philosophy:
 from __future__ import annotations
 
 import math
-from io import BytesIO
+from io import BytesIO, StringIO, TextIOBase
 from pathlib import Path
-from typing import Any
+from typing import Any, IO, TextIO, Union
 
 import base64
 import matplotlib
@@ -24,6 +24,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats as sp_stats
 
+_InputSource = Union[Path, str, TextIO, IO[bytes]]
+
 matplotlib.use("Agg")
 
 
@@ -31,19 +33,41 @@ matplotlib.use("Agg")
 # Data Parsing
 # ---------------------------------------------------------------------------
 
-def parse_paired_measurements(
-    file_a: Path,
-    file_b: Path,
-) -> tuple[pd.DataFrame, list[float], list[float], list[float]]:
-    """Parse two measurement files and produce an aligned paired DataFrame.
+def _read_text_lines(input_file: _InputSource) -> list[str]:
+    """Read text lines from a path or an in-memory text/binary stream."""
+    if isinstance(input_file, (Path, str)):
+        with open(input_file, "r", encoding="utf-8") as fh:
+            return [line.rstrip("\n") for line in fh]
 
-    Both files are expected to contain one measurement per line (numeric values).
+    if hasattr(input_file, "read"):
+        if isinstance(input_file, (StringIO, TextIOBase)):
+            try:
+                input_file.seek(0)
+            except Exception:
+                pass
+            return [line.rstrip("\n") for line in input_file]
+
+        raw = input_file.read()
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", errors="replace")
+        return raw.splitlines()
+
+    raise TypeError("input_file must be a path or a text/binary stream")
+
+
+def parse_paired_measurements(
+    file_a: _InputSource,
+    file_b: _InputSource,
+) -> tuple[pd.DataFrame, list[float], list[float], list[float]]:
+    """Parse two measurement sources and produce an aligned paired DataFrame.
+
+    Both sources are expected to contain one measurement per line (numeric values).
     They must have the same number of observations. Each line is stripped and
     converted to float.
 
     Args:
-        file_a: Path to System A measurements (one per line).
-        file_b: Path to System B measurements (one per line).
+        file_a: Path, filename, or in-memory text/binary stream for System A.
+        file_b: Path, filename, or in-memory text/binary stream for System B.
 
     Returns:
         A tuple ``(paired_df, system_a_vals, system_b_vals, differences)``:
@@ -53,11 +77,9 @@ def parse_paired_measurements(
         - differences: List of differences (A - B).
 
     Raises:
-        ValueError: If the files have different lengths or contain non-numeric data.
+        ValueError: If the sources have different lengths or contain non-numeric data.
     """
-    # Read System A
-    with open(file_a, "r", encoding="utf-8") as fh:
-        lines_a = [line.strip() for line in fh if line.strip()]
+    lines_a = [line.strip() for line in _read_text_lines(file_a) if line.strip()]
     system_a_vals = []
     for line in lines_a:
         try:
@@ -65,9 +87,7 @@ def parse_paired_measurements(
         except ValueError:
             continue
 
-    # Read System B
-    with open(file_b, "r", encoding="utf-8") as fh:
-        lines_b = [line.strip() for line in fh if line.strip()]
+    lines_b = [line.strip() for line in _read_text_lines(file_b) if line.strip()]
     system_b_vals = []
     for line in lines_b:
         try:
@@ -75,17 +95,13 @@ def parse_paired_measurements(
         except ValueError:
             continue
 
-    # Verify equal length
     if len(system_a_vals) != len(system_b_vals):
         raise ValueError(
             f"Mismatched lengths: System A has {len(system_a_vals)} values, "
             f"System B has {len(system_b_vals)} values."
         )
 
-    # Compute differences
     differences = [a - b for a, b in zip(system_a_vals, system_b_vals)]
-
-    # Build DataFrame
     obs_nums = list(range(1, len(system_a_vals) + 1))
     paired_df = pd.DataFrame({
         "Observation": obs_nums,
@@ -490,8 +506,8 @@ def _render_stats_table_chart(
 def create_paired_ttest_dashboard(
     paired_df: pd.DataFrame,
     metrics: dict[str, object],
-    output_path: Path,
-) -> None:
+    output_path: Path | None = None,
+) -> str:
     """Generate a self-contained HTML dashboard for paired t-test results.
 
     Embeds 4 charts as Base64 images:
@@ -503,9 +519,11 @@ def create_paired_ttest_dashboard(
     Args:
         paired_df: DataFrame with paired measurements and differences.
         metrics: Dictionary from calculate_paired_ttest_metrics.
-        output_path: Where to write the HTML file.
+        output_path: Where to write the HTML file, or ``None`` to skip writing.
+
+    Returns:
+        The rendered HTML content.
     """
-    # Extract data for charts
     system_a = paired_df["System_A"].tolist()
     system_b = paired_df["System_B"].tolist()
     differences = paired_df["Difference"].tolist()
@@ -892,7 +910,9 @@ def create_paired_ttest_dashboard(
 </html>
 """
 
-    with open(output_path, "w", encoding="utf-8") as fh:
-        fh.write(html_content)
+    if output_path is not None:
+        with open(output_path, "w", encoding="utf-8") as fh:
+            fh.write(html_content)
+        print(f"Dashboard created: {output_path}")
 
-    print(f"Dashboard created: {output_path}")
+    return html_content

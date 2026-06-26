@@ -474,19 +474,21 @@ document.querySelectorAll('.summary-row').forEach(function(row) {
 def create_dashboard(
     df: pd.DataFrame,
     summary_data: list[dict[str, Any]],
-    output_path: Path,
-) -> None:
+    output_path: Path | None = None,
+) -> str:
     """Generate a self-contained HTML dashboard with embedded charts.
 
-    Produces a single ``.html`` file with no external dependencies —
-    all charts are base-64 encoded PNGs, and all styles/scripts are
-    inlined.  Just open it in any browser.
+    Produces a single HTML string containing embedded Base64 chart images.
+    If ``output_path`` is provided, the rendered HTML is also written to disk.
 
     Args:
         df: Full measurement DataFrame.
         summary_data: List of metric dicts produced by
             ``calculate_type1_metrics``.
-        output_path: Destination path for the ``.html`` file.
+        output_path: Optional destination path for the ``.html`` file.
+
+    Returns:
+        The rendered HTML content.
     """
     import time
 
@@ -569,5 +571,8 @@ def create_dashboard(
 </body>
 </html>"""
 
-    output_path.write_text(html, encoding="utf-8")
-    print(f"Dashboard created: {output_path}")
+    if output_path is not None:
+        output_path.write_text(html, encoding="utf-8")
+        print(f"Dashboard created: {output_path}")
+
+    return html

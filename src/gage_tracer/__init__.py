@@ -14,10 +14,10 @@ Paired T-Test:
 - ``create_paired_ttest_dashboard``: Generate the interactive HTML dashboard.
 """
 
-from src.gage_tracer.data_parser import transform_ogp_data
-from src.gage_tracer.calculations import calculate_type1_metrics
-from src.gage_tracer.visualization import create_dashboard
-from src.gage_tracer.paired_ttest import (
+from .data_parser import transform_ogp_data
+from .calculations import calculate_type1_metrics
+from .visualization import create_dashboard
+from .paired_ttest import (
     parse_paired_measurements,
     export_paired_data,
     calculate_paired_ttest_metrics,
