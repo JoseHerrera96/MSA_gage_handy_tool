@@ -1,4 +1,4 @@
-﻿# Data Tracer — Integrated MSA Suite
+﻿# Integrated MSA Suite
 
 Data Tracer delivers fast, reliable MSA analysis for Type 1 Gage Study and Paired T-Test evaluations, with guided results, visual dashboards, and export-ready reports.
 

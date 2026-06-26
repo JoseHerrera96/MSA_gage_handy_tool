@@ -412,7 +412,7 @@ def main() -> None:
     _apply_theme()
     study = _render_sidebar()
 
-    st.title("Data Tracer — Integrated MSA Suite")
+    st.title("Integrated MSA Suite")
     st.markdown("MSA analysis with modern visual feedback and export ready dashboards.")
     st.divider()
 
