@@ -78,8 +78,8 @@ def _render_dimension_chart(
     fig, axes = plt.subplots(
         2,
         1,
-        figsize=(11, 9),
-        gridspec_kw={"height_ratios": [1.2, 0.8]},
+        figsize=(9, 7),
+        gridspec_kw={"height_ratios": [1.1, 0.9]},
     )
     fig.patch.set_facecolor("#FEFEFE")  # Match page background
 
