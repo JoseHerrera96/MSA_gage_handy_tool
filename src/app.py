@@ -413,7 +413,7 @@ def main() -> None:
     study = _render_sidebar()
 
     st.title("Data Tracer — Integrated MSA Suite")
-    st.markdown("Streamlined measurement system analysis with modern visual feedback and export-ready dashboards.")
+    st.markdown("MSA analysis with modern visual feedback and export ready dashboards.")
     st.divider()
 
     if study == "Type 1 Gage Study":

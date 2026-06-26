@@ -1,6 +1,6 @@
 ﻿# Data Tracer — Integrated MSA Suite
 
-A polished measurement system analysis (MSA) toolkit for Type 1 Gage Study and Paired T-Test workflows. This repository combines a unified Streamlit UI with standalone CLI entry points and decoupled core analytics logic.
+Data Tracer delivers fast, reliable MSA analysis for Type 1 Gage Study and Paired T-Test evaluations, with guided results, visual dashboards, and export-ready reports.
 
 ## Repository Overview
 
