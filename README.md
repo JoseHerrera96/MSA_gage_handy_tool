@@ -4,9 +4,10 @@ A polished measurement system analysis (MSA) toolkit for Type 1 Gage Study and P
 
 ## Repository Overview
 
-- `app.py` — Unified Streamlit interface for interactive MSA workflows.
+- `streamlit_app.py` — Unified Streamlit entrypoint for interactive MSA workflows.
 - `cli/Type_1_gage_handy_tool.py` — Standalone CLI for Type 1 Gage Study processing.
 - `cli/Paired_T_Test_tool.py` — Standalone CLI for paired t-test comparison.
+- `src/app.py` — Streamlit application module with the core UI implementation.
 - `src/gage_tracer/` — Core library with parsing, calculation, and dashboard rendering.
 - `gage_type1/` — Structured output directories for Type 1 results.
 - `paired_ttest/` — Structured output directories for Paired T-Test results.
@@ -19,12 +20,13 @@ A polished measurement system analysis (MSA) toolkit for Type 1 Gage Study and P
 .
 ├── LICENSE
 ├── README.md
-├── app.py
 ├── requirements.txt
+├── streamlit_app.py
 ├── cli/
 │   ├── Type_1_gage_handy_tool.py
 │   └── Paired_T_Test_tool.py
 ├── src/
+│   ├── app.py
 │   └── gage_tracer/
 │       ├── calculations.py
 │       ├── data_parser.py
@@ -52,7 +54,13 @@ A polished measurement system analysis (MSA) toolkit for Type 1 Gage Study and P
 Launch the portfolio-grade Streamlit application:
 
 ```bash
-streamlit run app.py
+streamlit run streamlit_app.py
+```
+
+or locally with the repo virtual environment:
+
+```bash
+.venv\Scripts\python.exe streamlit_app.py
 ```
 
 The UI provides:
