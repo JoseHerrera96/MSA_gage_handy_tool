@@ -3,7 +3,7 @@
 Public API re-exported here for convenience:
 
 Type 1 Gage Study:
-- ``transform_ogp_data``: Parse raw OGP files into a structured TSV.
+- ``transform_raw_data``: Parse raw data files into a structured TSV.
 - ``calculate_type1_metrics``: Compute Cg, Cgk, bias, %Var, etc.
 - ``create_dashboard``: Generate the interactive HTML dashboard.
 
@@ -14,7 +14,7 @@ Paired T-Test:
 - ``create_paired_ttest_dashboard``: Generate the interactive HTML dashboard.
 """
 
-from .data_parser import transform_ogp_data
+from .data_parser import transform_raw_data
 from .calculations import calculate_type1_metrics
 from .visualization import create_dashboard
 from .paired_ttest import (
@@ -25,7 +25,7 @@ from .paired_ttest import (
 )
 
 __all__ = [
-    "transform_ogp_data",
+    "transform_raw_data",
     "calculate_type1_metrics",
     "create_dashboard",
     "parse_paired_measurements",

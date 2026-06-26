@@ -214,7 +214,7 @@ The Paired T-Test module uses:
 ### Backward Compatibility ✓
 ```python
 # Old imports still work
-from gage_tracer import transform_ogp_data, calculate_type1_metrics, create_dashboard
+from gage_tracer import transform_raw_data, calculate_type1_metrics, create_dashboard
 
 # New imports available
 from gage_tracer import parse_paired_measurements, calculate_paired_ttest_metrics, create_paired_ttest_dashboard

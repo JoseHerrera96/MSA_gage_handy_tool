@@ -31,7 +31,7 @@ _src_dir = str(PROJECT_ROOT / "src")
 if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
-from gage_tracer.data_parser import transform_ogp_data          # noqa: E402  # type: ignore[import-not-found]
+from gage_tracer.data_parser import transform_raw_data          # noqa: E402  # type: ignore[import-not-found]
 from gage_tracer.calculations import calculate_type1_metrics     # noqa: E402  # type: ignore[import-not-found]
 from gage_tracer.visualization import create_dashboard           # noqa: E402  # type: ignore[import-not-found]
 
@@ -96,7 +96,7 @@ def run() -> None:
     """Run the full pipeline: Parse → Calculate → Report → Dashboard.
 
     Steps:
-        1. Parse raw OGP file into a structured TSV.
+        1. Parse raw data file into a structured TSV.
         2. Compute Type 1 Gage Study metrics for each dimension.
         3. Generate a text report and an interactive HTML dashboard.
     """
@@ -121,7 +121,7 @@ def run() -> None:
         shutil.move(str(ROOT_DASHBOARD_HTML), str(DASHBOARD_HTML))
         print(f"      Migrated legacy dashboard to {DASHBOARD_HTML.relative_to(PROJECT_ROOT)}")
 
-    # Step 1 — Parse raw OGP data into a clean TSV table.
+    # Step 1 — Parse raw data into a clean TSV table.
     if RAW_FILE.exists():
         raw_path = RAW_FILE
     elif ROOT_RAW_FILE.exists():
@@ -132,10 +132,10 @@ def run() -> None:
         raw_path = None
 
     if raw_path is not None:
-        print(f"\n[1/3] Parsing raw OGP data: {raw_path.name}")
-        transform_ogp_data(raw_path, GAGE_DATA_FILE)
+        print(f"\n[1/3] Parsing raw data: {raw_path.name}")
+        transform_raw_data(raw_path, GAGE_DATA_FILE)
     else:
-        print(f"\n[1/3] Raw OGP file not found ({RAW_FILE.name} or {ROOT_RAW_FILE.name});")
+        print(f"\n[1/3] Raw data file not found ({RAW_FILE.name} or {ROOT_RAW_FILE.name});")
         print(f"      using existing {GAGE_DATA_FILE.relative_to(PROJECT_ROOT)}")
 
     if not GAGE_DATA_FILE.exists():

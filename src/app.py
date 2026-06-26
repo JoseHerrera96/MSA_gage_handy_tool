@@ -14,7 +14,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from gage_tracer.data_parser import transform_ogp_data
+from gage_tracer.data_parser import transform_raw_data
 from gage_tracer.calculations import calculate_type1_metrics
 from gage_tracer.visualization import create_dashboard
 from gage_tracer.paired_ttest import (
@@ -257,10 +257,25 @@ def _build_type1_summary(df: pd.DataFrame) -> list[dict[str, Any]]:
     summary: list[dict[str, Any]] = []
     for col in df.columns:
         if col.strip() not in skip_cols:
-            measurements = df[col].dropna().astype(float)
+            measurements = pd.to_numeric(df[col], errors="coerce").dropna()
             if measurements.empty:
                 continue
-            spec_row = df[df["Dimension"] == col].iloc[0]
+
+            spec_row = df[df["Dimension"] == col].iloc[0].copy()
+            nominal = pd.to_numeric(spec_row["Nominal"], errors="coerce")
+            upper_tol = pd.to_numeric(spec_row["Upper Tol"], errors="coerce")
+            lower_tol = pd.to_numeric(spec_row["Lower Tol"], errors="coerce")
+
+            if pd.isna(nominal) or pd.isna(upper_tol) or pd.isna(lower_tol):
+                raise ValueError(
+                    f"Missing or invalid tolerance specs for dimension '{col}'. "
+                    "Please upload a raw data file with nominal and tolerance values."
+                )
+
+            spec_row["Nominal"] = nominal
+            spec_row["Upper Tol"] = upper_tol
+            spec_row["Lower Tol"] = lower_tol
+
             summary.append(calculate_type1_metrics(col, measurements, spec_row))
     return summary
 
@@ -268,7 +283,7 @@ def _build_type1_summary(df: pd.DataFrame) -> list[dict[str, Any]]:
 def _render_type1_page() -> None:
     st.header("Type 1 Gage Study")
     with st.container():
-        st.markdown("#### Step 1 — Upload raw OGP data")
+        st.markdown("#### Step 1 — Upload raw data")
         st.info("Upload a raw data text file to start the Type 1 Gage Study.")
         uploaded = st.file_uploader("Upload RAW DATA.txt", type=["txt"], key="type1_raw")
 
@@ -280,7 +295,7 @@ def _render_type1_page() -> None:
     try:
         with st.spinner("Processing Type 1 Gage Study data..."):
             buffer = _uploaded_to_textio(uploaded)
-            df = transform_ogp_data(buffer, output_file=None)
+            df = transform_raw_data(buffer, output_file=None)
             summary = _build_type1_summary(df)
 
         if not summary:

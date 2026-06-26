@@ -1,6 +1,6 @@
-"""OGP raw-data parser and TSV exporter.
+"""Raw data parser and TSV exporter.
 
-Reads raw measurement files from OGP SmartScope instruments, extracts
+Reads raw measurement files, extracts
 dimension values and tolerance specs, calculates per-dimension stats
 (average, range), and writes everything to a tab-separated file for
 downstream analysis.
@@ -42,10 +42,10 @@ def _open_text_input(input_file: _InputSource) -> TextIO:
     raise TypeError("input_file must be a path or a text/binary stream")
 
 
-def _parse_ogp_data(
+def _parse_raw_data(
     input_file: _InputSource,
 ) -> tuple[list[dict[str, float]], dict[str, dict[str, float]]]:
-    """Read a raw OGP file and split it into repetitions + specs.
+    """Read a raw data file and split it into repetitions + specs.
 
     The file uses ``:BEGIN`` / ``:END`` markers to delimit measurement
     repetitions.  Each data line contains the dimension name, measured
@@ -58,7 +58,7 @@ def _parse_ogp_data(
     UNIT, or :markers) are skipped, so any dimension name is accepted.
 
     Args:
-        input_file: Path to the raw OGP text file.
+        input_file: Path to the raw data text file.
 
     Returns:
         A tuple ``(repetitions, specs)``:
@@ -250,13 +250,13 @@ def _format_output_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 # Public API
 # ---------------------------------------------------------------------------
 
-def transform_ogp_data(
+def transform_raw_data(
     input_file: _InputSource,
     output_file: Path | None = None,
 ) -> pd.DataFrame:
-    """Convert a raw OGP source into a structured TSV or return a DataFrame.
+    """Convert a raw data source into a structured TSV or return a DataFrame.
 
-    This is the main function of the module. It reads the raw OGP
+    This is the main function of the module. It reads the raw
     measurements, runs basic statistics, and writes an interleaved
     data + stats table to disk if ``output_file`` is provided.
 
@@ -267,7 +267,7 @@ def transform_ogp_data(
     Returns:
         The parsed and formatted DataFrame.
     """
-    all_repetitions, specs = _parse_ogp_data(input_file)
+    all_repetitions, specs = _parse_raw_data(input_file)
     df = pd.DataFrame(all_repetitions)
     stats_df = _compute_dimension_statistics(df, specs)
     combined_df = _build_interleaved_output(df, stats_df)
