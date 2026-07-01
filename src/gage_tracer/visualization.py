@@ -181,7 +181,7 @@ def _build_chart_data(
         dim: str = row["Dimension"]
         if dim not in df.columns:
             continue
-        measurements = df[dim].dropna().astype(float)
+        measurements = pd.to_numeric(df[dim], errors="coerce").dropna()
         reference_val = float(row["Reference"])
         mean_val = float(row["Mean"])
         std_val = float(row["StdDev"])

@@ -88,7 +88,11 @@ def _parse_raw_data(
             # Skip known metadata lines; treat everything else as a
             # dimension row (supports any dimension name like gp_height,
             # coplanarity, C5, etc.).
-            elif line.startswith('"') and not line.startswith('":') and not line.startswith('"PATTERN') and not line.startswith('"DISPLAY') and not line.startswith('"UNIT'):
+            elif line.startswith('"'):
+                # Check if it's a metadata line by looking at the content inside quotes
+                stripped_line = line[1:].split('"')[0].strip() if line.startswith('"') else line
+                if stripped_line.startswith(':') or stripped_line in ('PATTERN', 'DISPLAY', 'UNIT') or stripped_line.startswith(('PATTERN:', 'DISPLAY:', 'UNIT:')):
+                    continue
                 
                 parts = line.split("\t")
                 # Handle both formats: with specs (5+ parts) and without (2 parts)
@@ -96,6 +100,9 @@ def _parse_raw_data(
                     raw_dim_name = parts[0].strip('"')
                     dim_name = raw_dim_name.replace("_OUT1", "")
                     try:
+                        # Skip if measurement is empty
+                        if not parts[1].strip():
+                            continue
                         measurement = float(parts[1])
 
                         # Detect cycle boundary: if this dimension already
