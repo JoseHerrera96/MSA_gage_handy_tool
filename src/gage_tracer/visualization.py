@@ -576,3 +576,213 @@ def create_dashboard(
         print(f"Dashboard created: {output_path}")
 
     return html
+
+
+# ---------------------------------------------------------------------------
+# Gage R&R Crossed Dashboard (6-Panel Minitab Standard)
+# ---------------------------------------------------------------------------
+
+# Control chart constants for n=3 (subgroup size)
+_D2 = 1.693  # Constant for R chart
+_D3 = 0.0    # Lower control limit factor for R chart
+_D4 = 2.574  # Upper control limit factor for R chart
+_A2 = 1.023  # Constant for Xbar chart
+
+
+def create_gage_rr_dashboard(
+    df: pd.DataFrame,
+    results_dict: dict[str, object],
+    part_col: str = "Part",
+    op_col: str = "Operator",
+    resp_col: str = "Measurement",
+) -> plt.Figure:
+    """Generate 6-panel Gage R&R Crossed dashboard following Minitab standards.
+
+    Creates a 2x3 grid of charts:
+    1. Components of Variation (bar chart)
+    2. Measurement by Part (scatter + line)
+    3. R Chart by Operator (control chart)
+    4. Measurement by Operator (boxplots)
+    5. Xbar Chart by Operator (control chart)
+    6. Part * Operator Interaction (line plot)
+
+    Args:
+        df: DataFrame with Part, Operator, Measurement columns.
+        results_dict: Results dictionary from calculate_gage_rr_crossed.
+        part_col: Name of part column (default "Part").
+        op_col: Name of operator column (default "Operator").
+        resp_col: Name of measurement column (default "Measurement").
+
+    Returns:
+        matplotlib Figure object with 6 panels.
+    """
+    # Color palette (consistent with project)
+    CLR_DATA = "#3A3A44"       # Primary data
+    CLR_REF = "#1A8754"        # Reference/good
+    CLR_LIMIT = "#FF6135"      # Control limits/attention
+    CLR_MEAN = "#FF420D"       # Mean/accent
+    CLR_GRID = "#E0E0E4"      # Grid
+    CLR_LABEL = "#5A5A66"      # Labels
+    CLR_TITLE = "#010101"      # Titles
+    CLR_SPINE = "#D1D1D6"      # Borders
+    CLR_CARD = "#FFFFFF"       # Background
+
+    # Extract variance components for chart 1
+    var_df = results_dict["variance_components"]
+    gage_eval_df = results_dict["gage_evaluation"]
+
+    # Create 2x3 figure
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    fig.patch.set_facecolor("#FEFEFE")
+
+    # Panel 1: Components of Variation (Bar Chart)
+    ax1 = axes[0, 0]
+    sources = ["Total Gage R&R", "Repeatability", "Reproducibility", "Part-to-Part"]
+    contrib_pct = []
+    for source in sources:
+        row = var_df[var_df["Source"] == source].iloc[0]
+        contrib_pct.append(row["%Contribution"])
+
+    bars = ax1.bar(sources, contrib_pct, color=[CLR_LIMIT, CLR_DATA, CLR_DATA, CLR_REF], alpha=0.8)
+    ax1.set_ylabel("% Contribution", fontsize=9, color=CLR_LABEL)
+    ax1.set_title("Components of Variation", fontsize=10, fontweight="bold", color=CLR_TITLE)
+    ax1.tick_params(labelsize=8, colors=CLR_LABEL, rotation=45)
+    ax1.grid(True, alpha=0.3, color=CLR_GRID, axis="y")
+    for spine in ax1.spines.values():
+        spine.set_color(CLR_SPINE)
+
+    # Panel 2: Measurement by Part (Scatter + Line)
+    ax2 = axes[0, 1]
+    for operator in df[op_col].unique():
+        op_data = df[df[op_col] == operator]
+        ax2.plot(range(len(op_data)), op_data[resp_col], "-o", markersize=4, linewidth=1, alpha=0.7, label=operator)
+
+    ax2.set_xlabel("Measurement Order", fontsize=9, color=CLR_LABEL)
+    ax2.set_ylabel(resp_col, fontsize=9, color=CLR_LABEL)
+    ax2.set_title("Measurement by Part", fontsize=10, fontweight="bold", color=CLR_TITLE)
+    ax2.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax2.grid(True, alpha=0.3, color=CLR_GRID)
+    ax2.legend(fontsize=7, loc="best", facecolor=CLR_CARD, edgecolor=CLR_SPINE, labelcolor=CLR_LABEL)
+    for spine in ax2.spines.values():
+        spine.set_color(CLR_SPINE)
+
+    # Panel 3: R Chart by Operator
+    ax3 = axes[0, 2]
+    r_values = []
+    operator_labels = []
+
+    for operator in sorted(df[op_col].unique()):
+        op_data = df[df[op_col] == operator]
+        # Calculate R for each part (3 trials per part)
+        part_ranges = []
+        for part in sorted(df[part_col].unique()):
+            part_trials = op_data[op_data[part_col] == part][resp_col].values
+            if len(part_trials) >= 2:
+                part_ranges.append(part_trials.max() - part_trials.min())
+        if part_ranges:
+            r_bar = np.mean(part_ranges)
+            r_values.append(r_bar)
+            operator_labels.append(operator)
+
+    if r_values:
+        x_pos = range(len(r_values))
+        ax3.bar(x_pos, r_values, color=CLR_DATA, alpha=0.7, edgecolor=CLR_SPINE)
+
+        # Control limits
+        r_overall = np.mean(r_values)
+        ucl_r = _D4 * r_overall
+        lcl_r = _D3 * r_overall
+
+        ax3.axhline(y=ucl_r, color=CLR_LIMIT, ls="--", lw=1.5, label=f"UCL ({ucl_r:.4f})")
+        ax3.axhline(y=r_overall, color=CLR_REF, ls="-", lw=1.5, label=f"R-bar ({r_overall:.4f})")
+        if lcl_r > 0:
+            ax3.axhline(y=lcl_r, color=CLR_LIMIT, ls="--", lw=1.5, label=f"LCL ({lcl_r:.4f})")
+
+    ax3.set_xticks(range(len(operator_labels)))
+    ax3.set_xticklabels(operator_labels, rotation=45, ha="right", fontsize=8)
+    ax3.set_ylabel("Range (R)", fontsize=9, color=CLR_LABEL)
+    ax3.set_title("R Chart by Operator", fontsize=10, fontweight="bold", color=CLR_TITLE)
+    ax3.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax3.grid(True, alpha=0.3, color=CLR_GRID, axis="y")
+    ax3.legend(fontsize=7, loc="best", facecolor=CLR_CARD, edgecolor=CLR_SPINE, labelcolor=CLR_LABEL)
+    for spine in ax3.spines.values():
+        spine.set_color(CLR_SPINE)
+
+    # Panel 4: Measurement by Operator (Boxplots)
+    ax4 = axes[1, 0]
+    box_data = [df[df[op_col] == op][resp_col].values for op in sorted(df[op_col].unique())]
+    bp = ax4.boxplot(box_data, labels=sorted(df[op_col].unique()), patch_artist=True)
+
+    for patch in bp["boxes"]:
+        patch.set_facecolor(CLR_DATA)
+        patch.set_alpha(0.6)
+        patch.set_edgecolor(CLR_SPINE)
+
+    for median in bp["medians"]:
+        median.set_color(CLR_MEAN)
+        median.set_linewidth(2)
+
+    ax4.set_ylabel(resp_col, fontsize=9, color=CLR_LABEL)
+    ax4.set_title("Measurement by Operator", fontsize=10, fontweight="bold", color=CLR_TITLE)
+    ax4.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax4.grid(True, alpha=0.3, color=CLR_GRID, axis="y")
+    for spine in ax4.spines.values():
+        spine.set_color(CLR_SPINE)
+
+    # Panel 5: Xbar Chart by Operator
+    ax5 = axes[1, 1]
+    xbar_values = []
+    for operator in sorted(df[op_col].unique()):
+        op_data = df[df[op_col] == operator]
+        # Calculate Xbar for each part
+        part_means = []
+        for part in sorted(df[part_col].unique()):
+            part_trials = op_data[op_data[part_col] == part][resp_col].values
+            part_means.append(np.mean(part_trials))
+        xbar_values.append(np.mean(part_means))
+
+    if xbar_values:
+        x_pos = range(len(xbar_values))
+        ax5.bar(x_pos, xbar_values, color=CLR_DATA, alpha=0.7, edgecolor=CLR_SPINE)
+
+        # Control limits
+        x_double_bar = np.mean(xbar_values)
+        r_overall = np.mean(r_values) if r_values else 1.0
+        ucl_x = x_double_bar + _A2 * r_overall
+        lcl_x = x_double_bar - _A2 * r_overall
+
+        ax5.axhline(y=ucl_x, color=CLR_LIMIT, ls="--", lw=1.5, label=f"UCL ({ucl_x:.4f})")
+        ax5.axhline(y=x_double_bar, color=CLR_REF, ls="-", lw=1.5, label=f"X-bar ({x_double_bar:.4f})")
+        ax5.axhline(y=lcl_x, color=CLR_LIMIT, ls="--", lw=1.5, label=f"LCL ({lcl_x:.4f})")
+
+    ax5.set_xticks(range(len(operator_labels)))
+    ax5.set_xticklabels(operator_labels, rotation=45, ha="right", fontsize=8)
+    ax5.set_ylabel("X-bar", fontsize=9, color=CLR_LABEL)
+    ax5.set_title("Xbar Chart by Operator", fontsize=10, fontweight="bold", color=CLR_TITLE)
+    ax5.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax5.grid(True, alpha=0.3, color=CLR_GRID, axis="y")
+    ax5.legend(fontsize=7, loc="best", facecolor=CLR_CARD, edgecolor=CLR_SPINE, labelcolor=CLR_LABEL)
+    for spine in ax5.spines.values():
+        spine.set_color(CLR_SPINE)
+
+    # Panel 6: Part * Operator Interaction
+    ax6 = axes[1, 2]
+    for operator in sorted(df[op_col].unique()):
+        op_data = df[df[op_col] == operator]
+        part_means = []
+        for part in sorted(df[part_col].unique()):
+            part_trials = op_data[op_data[part_col] == part][resp_col].values
+            part_means.append(np.mean(part_trials))
+        ax6.plot(range(len(part_means)), part_means, "-o", markersize=4, linewidth=1.5, alpha=0.8, label=operator)
+
+    ax6.set_xlabel("Part", fontsize=9, color=CLR_LABEL)
+    ax6.set_ylabel("Mean Measurement", fontsize=9, color=CLR_LABEL)
+    ax6.set_title("Part * Operator Interaction", fontsize=10, fontweight="bold", color=CLR_TITLE)
+    ax6.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax6.grid(True, alpha=0.3, color=CLR_GRID)
+    ax6.legend(fontsize=7, loc="best", facecolor=CLR_CARD, edgecolor=CLR_SPINE, labelcolor=CLR_LABEL)
+    for spine in ax6.spines.values():
+        spine.set_color(CLR_SPINE)
+
+    plt.tight_layout(pad=2.0)
+    return fig

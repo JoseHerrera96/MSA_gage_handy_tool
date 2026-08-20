@@ -14,9 +14,9 @@ Paired T-Test:
 - ``create_paired_ttest_dashboard``: Generate the interactive HTML dashboard.
 """
 
-from .data_parser import transform_raw_data
-from .calculations import calculate_type1_metrics
-from .visualization import create_dashboard
+from .data_parser import transform_raw_data, transform_gage_rr_data
+from .calculations import calculate_type1_metrics, calculate_gage_rr_crossed
+from .visualization import create_dashboard, create_gage_rr_dashboard
 from .paired_ttest import (
     parse_paired_measurements,
     export_paired_data,
@@ -26,8 +26,11 @@ from .paired_ttest import (
 
 __all__ = [
     "transform_raw_data",
+    "transform_gage_rr_data",
     "calculate_type1_metrics",
+    "calculate_gage_rr_crossed",
     "create_dashboard",
+    "create_gage_rr_dashboard",
     "parse_paired_measurements",
     "export_paired_data",
     "calculate_paired_ttest_metrics",

@@ -14,9 +14,9 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from gage_tracer.data_parser import transform_raw_data
-from gage_tracer.calculations import calculate_type1_metrics
-from gage_tracer.visualization import create_dashboard
+from gage_tracer.data_parser import transform_raw_data, transform_gage_rr_data
+from gage_tracer.calculations import calculate_type1_metrics, calculate_gage_rr_crossed
+from gage_tracer.visualization import create_dashboard, create_gage_rr_dashboard
 from gage_tracer.paired_ttest import (
     parse_paired_measurements,
     calculate_paired_ttest_metrics,
@@ -236,13 +236,17 @@ def _render_sidebar() -> str:
         if st.button("Paired T-Test", key="paired_btn"):
             st.session_state.selected_study = "Paired T-Test"
 
+    with st.sidebar.container():
+        if st.button("Gage R&R (Crossed)", key="grr_btn"):
+            st.session_state.selected_study = "Gage R&R (Crossed)"
+
     st.sidebar.markdown(
         """
         <div class="sidebar-help">
             <ul>
                 <li>Upload plain text measurement files (.txt)</li>
                 <li>Export polished HTML dashboards for reporting</li>
-                <li>Supports Type 1 Gage Study and Paired T-Test analysis</li>
+                <li>Supports Type 1 Gage Study, Paired T-Test, and Gage R&R Crossed analysis</li>
             </ul>
         </div>
         """,
@@ -423,6 +427,110 @@ def _render_paired_page() -> None:
         )
 
 
+def _render_gage_rr_page() -> None:
+    st.header("Gage R&R (Crossed) ANOVA Analysis")
+    with st.container():
+        st.markdown("#### Step 1 — Upload raw Gage R&R data")
+        st.info("Upload a raw data text file with 90 measurements (30 per operator, 10 parts × 3 trials). File must contain NOMINAL, UPPER_TOL, and LOWER_TOL specifications.")
+        uploaded = st.file_uploader("Upload GAGE RR DATA.txt", type=["txt"], key="grr_raw")
+
+    st.divider()
+
+    if uploaded is None:
+        return
+
+    try:
+        with st.spinner("Processing Gage R&R Crossed data..."):
+            buffer = _uploaded_to_textio(uploaded)
+            df = transform_gage_rr_data(buffer, output_file=None)
+
+            # Extract tolerance from first row
+            tolerance = df["Tolerance"].iloc[0]
+
+            # Calculate Gage R&R metrics
+            results = calculate_gage_rr_crossed(df, tolerance)
+
+    except ValueError as exc:
+        st.error("Invalid data format for Gage R&R analysis.")
+        st.warning(str(exc))
+        return
+    except Exception as exc:
+        st.error("Unable to process the Gage R&R data file.")
+        st.warning(str(exc))
+        return
+
+    # Industrial traffic light verdict
+    grr_pct = results["total_grr_pct"]
+    ndc = results["ndc"]
+
+    # Determine verdict
+    if grr_pct < 10 and ndc >= 5:
+        verdict = "PASS"
+        verdict_color = "🟢"
+        verdict_msg = "Excellent - Measurement system is acceptable"
+    elif 10 <= grr_pct <= 30 and ndc >= 5:
+        verdict = "MARGINAL"
+        verdict_color = "🟡"
+        verdict_msg = "Marginal - Measurement system may be acceptable depending on application"
+    else:
+        verdict = "FAIL"
+        verdict_color = "🔴"
+        verdict_msg = "Unacceptable - Measurement system needs improvement"
+
+    with st.container():
+        st.markdown("#### Key results")
+        metrics_cols = st.columns(4)
+        metrics_cols[0].metric("Total Gage R&R", f"{grr_pct:.2f}%")
+        metrics_cols[1].metric("NDC", f"{ndc}")
+        metrics_cols[2].metric("Study Variation", f"{results['study_variation']:.4f}")
+        metrics_cols[3].metric("Verdict", verdict, delta=verdict_color)
+
+    st.markdown(f"**{verdict_color} {verdict_msg}**")
+
+    st.divider()
+
+    with st.container():
+        st.markdown("#### ANOVA Table")
+        anova_df = results["anova_table"]
+        st.dataframe(anova_df, use_container_width=True)
+
+    st.divider()
+
+    with st.container():
+        st.markdown("#### Variance Components")
+        var_df = results["variance_components"]
+        st.dataframe(var_df, use_container_width=True)
+
+    st.divider()
+
+    with st.container():
+        st.markdown("#### Gage Evaluation")
+        gage_eval_df = results["gage_evaluation"]
+        st.dataframe(gage_eval_df, use_container_width=True)
+
+    st.divider()
+
+    with st.container():
+        st.markdown("#### 6-Panel Dashboard")
+        fig = create_gage_rr_dashboard(df, results)
+        st.pyplot(fig)
+
+    st.divider()
+
+    with st.container():
+        st.markdown("#### Pooled Interaction Status")
+        if results["pooled_interaction"]:
+            st.info(f"Part*Operator interaction was pooled with error (p-value = {results['interaction_p_value']:.4f} > 0.05)")
+        else:
+            st.warning(f"Part*Operator interaction was NOT pooled (p-value = {results['interaction_p_value']:.4f} ≤ 0.05)")
+
+    st.divider()
+
+    with st.container():
+        st.markdown("#### Data Preview")
+        st.dataframe(df, use_container_width=True)
+
+
 def main() -> None:
     _apply_theme()
     study = _render_sidebar()
@@ -433,8 +541,10 @@ def main() -> None:
 
     if study == "Type 1 Gage Study":
         _render_type1_page()
-    else:
+    elif study == "Paired T-Test":
         _render_paired_page()
+    elif study == "Gage R&R (Crossed)":
+        _render_gage_rr_page()
 
 
 if __name__ == "__main__":

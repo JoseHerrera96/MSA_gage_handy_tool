@@ -65,10 +65,15 @@ def _parse_raw_data(
         - *repetitions*: list of dicts, one per cycle, keyed by dimension.
         - *specs*: dict mapping each dimension to its nominal/tolerance info.
     """
+    # Stores all complete measurement cycles (list of dicts, each dict = one cycle's measurements)
     all_repetitions: list[dict[str, float]] = []
+    # Tracks measurements for the currently active cycle being parsed
     current_repetition: dict[str, float] = {}
+    # Stores permanent tolerance/nominal specs for every detected dimension
     dimension_specs: dict[str, dict[str, float]] = {}
+    # Tracks the first dimension seen in the current cycle (used for auto-cycle detection)
     first_dimension_in_cycle: str | None = None
+    # Flag to track if the input file uses explicit :BEGIN/:END cycle markers
     has_explicit_markers = False
 
     with _open_text_input(input_file) as fh:
@@ -287,3 +292,182 @@ def transform_raw_data(
         print(f"Data saved to '{output_file}'")
 
     return combined_df
+
+
+# ---------------------------------------------------------------------------
+# Gage R&R Crossed Parser
+# ---------------------------------------------------------------------------
+
+def _parse_gage_rr_raw_data(
+    input_file: _InputSource,
+) -> tuple[list[float], tuple[float, float, float]]:
+    """Parse raw Gage R&R Crossed measurement file.
+
+    Expects exactly 90 measurements (30 per operator, 10 parts × 3 trials).
+    File format: one measurement per line, with tolerance specs in header.
+
+    Args:
+        input_file: Path to raw measurement file.
+
+    Returns:
+        Tuple of (measurements_list, tolerance_tuple) where tolerance_tuple is
+        (nominal, upper_tol, lower_tol).
+
+    Raises:
+        ValueError: If file doesn't contain exactly 90 measurements or
+                    tolerance information is missing.
+    """
+    measurements: list[float] = []
+    nominal: float | None = None
+    upper_tol: float | None = None
+    lower_tol: float | None = None
+
+    with _open_text_input(input_file) as fh:
+        for line in fh:
+            line = line.strip()
+
+            # Parse tolerance specs from header lines
+            if line.startswith("NOMINAL") or line.startswith("Nominal"):
+                try:
+                    nominal = float(line.split("\t")[1].strip())
+                except (IndexError, ValueError):
+                    pass
+            elif line.startswith("UPPER_TOL") or line.startswith("Upper Tol"):
+                try:
+                    upper_tol = float(line.split("\t")[1].strip())
+                except (IndexError, ValueError):
+                    pass
+            elif line.startswith("LOWER_TOL") or line.startswith("Lower Tol"):
+                try:
+                    lower_tol = float(line.split("\t")[1].strip())
+                except (IndexError, ValueError):
+                    pass
+            # Skip empty lines and comments
+            elif not line or line.startswith("#") or line.startswith('"'):
+                continue
+            # Parse measurement values
+            else:
+                try:
+                    value = float(line)
+                    measurements.append(value)
+                except ValueError:
+                    continue
+
+    # Validate tolerance information
+    if nominal is None or upper_tol is None or lower_tol is None:
+        raise ValueError(
+            "Missing tolerance specifications in input file. "
+            "File must contain NOMINAL, UPPER_TOL, and LOWER_TOL values."
+        )
+
+    # Validate measurement count
+    if len(measurements) != 90:
+        raise ValueError(
+            f"Expected exactly 90 measurements (30 per operator × 3 operators). "
+            f"Found {len(measurements)} measurements."
+        )
+
+    return measurements, (float(nominal), float(upper_tol), float(lower_tol))
+
+
+def _build_gage_rr_dataframe(
+    measurements: list[float],
+    tolerance: tuple[float, float, float],
+) -> pd.DataFrame:
+    """Build structured DataFrame for Gage R&R Crossed analysis.
+
+    Automatically assigns operators (30 measurements each) and parts
+    (10 parts × 3 trials per operator).
+
+    Args:
+        measurements: List of 90 measurement values.
+        tolerance: Tuple of (nominal, upper_tol, lower_tol).
+
+    Returns:
+        DataFrame with columns: Part, Operator, Measurement, Nominal, Upper Tol, Lower Tol.
+    """
+    nominal, upper_tol, lower_tol = tolerance
+    tolerance_range = upper_tol - lower_tol
+
+    data: list[dict[str, object]] = []
+
+    # Operator 1: measurements 0-29
+    for i in range(30):
+        part_num = (i // 3) + 1  # 10 parts, 3 trials each
+        trial_num = (i % 3) + 1
+        data.append({
+            "Part": f"Part_{part_num}",
+            "Operator": "Operator_1",
+            "Trial": trial_num,
+            "Measurement": measurements[i],
+            "Nominal": nominal,
+            "Upper Tol": upper_tol,
+            "Lower Tol": lower_tol,
+            "Tolerance": tolerance_range,
+        })
+
+    # Operator 2: measurements 30-59
+    for i in range(30, 60):
+        part_num = ((i - 30) // 3) + 1
+        trial_num = ((i - 30) % 3) + 1
+        data.append({
+            "Part": f"Part_{part_num}",
+            "Operator": "Operator_2",
+            "Trial": trial_num,
+            "Measurement": measurements[i],
+            "Nominal": nominal,
+            "Upper Tol": upper_tol,
+            "Lower Tol": lower_tol,
+            "Tolerance": tolerance_range,
+        })
+
+    # Operator 3: measurements 60-89
+    for i in range(60, 90):
+        part_num = ((i - 60) // 3) + 1
+        trial_num = ((i - 60) % 3) + 1
+        data.append({
+            "Part": f"Part_{part_num}",
+            "Operator": "Operator_3",
+            "Trial": trial_num,
+            "Measurement": measurements[i],
+            "Nominal": nominal,
+            "Upper Tol": upper_tol,
+            "Lower Tol": lower_tol,
+            "Tolerance": tolerance_range,
+        })
+
+    return pd.DataFrame(data)
+
+
+def transform_gage_rr_data(
+    input_file: _InputSource,
+    output_file: Path | None = None,
+) -> pd.DataFrame:
+    """Convert raw Gage R&R Crossed data into structured TSV format.
+
+    Parses 90 measurements with automatic operator assignment (30 per operator)
+    and tolerance extraction. Generates structured DataFrame for ANOVA analysis.
+
+    Args:
+        input_file: Path to raw measurement file with tolerance specs.
+        output_file: Where to write resulting TSV, or ``None`` to skip.
+
+    Returns:
+        Structured DataFrame with columns: Part, Operator, Trial, Measurement,
+        Nominal, Upper Tol, Lower Tol, Tolerance.
+
+    Raises:
+        ValueError: If input file doesn't contain exactly 90 measurements or
+                    tolerance information is missing.
+    """
+    measurements, tolerance = _parse_gage_rr_raw_data(input_file)
+    df = _build_gage_rr_dataframe(measurements, tolerance)
+
+    if output_file is not None:
+        df.to_csv(output_file, sep="\t", index=False)
+        print(f"Success! Processed {len(measurements)} Gage R&R measurements.")
+        print(f"Structure: 10 parts × 3 trials × 3 operators = 90 measurements")
+        print(f"Tolerance range: {tolerance[1] - tolerance[2]:.8f}")
+        print(f"Data saved to '{output_file}'")
+
+    return df
