@@ -526,6 +526,8 @@ def _render_gage_rr_page() -> None:
         metrics_cols[3].metric("Verdict", verdict, delta=verdict_color)
 
     st.markdown(f"**{verdict_color} {verdict_msg}**")
+    st.caption(f"Number of Distinct Categories (NDC): {ndc} | Target: >= 5")
+    st.caption("The Number of Distinct Categories (NDC) indicates how many part-to-part categories the measurement system can reliably distinguish. A value of 5 or more is generally considered acceptable.")
 
     st.divider()
 
@@ -551,8 +553,8 @@ def _render_gage_rr_page() -> None:
     st.divider()
 
     with st.container():
-        st.markdown("#### 6-Panel Dashboard")
-        fig = create_gage_rr_dashboard(characteristic_df, results)
+        st.markdown("#### Dashboard")
+        fig = create_gage_rr_dashboard(characteristic_df, results, dark_mode=True)
         st.pyplot(fig)
 
     st.divider()

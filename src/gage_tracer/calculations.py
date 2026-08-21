@@ -276,11 +276,16 @@ def calculate_gage_rr_crossed(
     var_repeatability = ms_error_final
 
     # Reproducibility (Appraiser Variation, AV)
+    # Minitab-style crossed Gage R&R reports split operator effects from the
+    # overall reproducibility subtotal. Keep the same subtotal used in the
+    # standard output while exposing the operator row separately.
     if n_operators > 1:
-        var_reproducibility = (ms_operator - var_repeatability) / (n_parts * n_trials)
-        if var_reproducibility < 0:
-            var_reproducibility = 0
+        var_operator = (ms_operator - var_repeatability) / (n_parts * n_trials)
+        if var_operator < 0:
+            var_operator = 0
+        var_reproducibility = var_operator
     else:
+        var_operator = 0
         var_reproducibility = 0
 
     # Part-to-Part (PV)
@@ -300,6 +305,7 @@ def calculate_gage_rr_crossed(
     # Standard deviations
     sd_repeatability = np.sqrt(var_repeatability)
     sd_reproducibility = np.sqrt(var_reproducibility)
+    sd_operator = np.sqrt(var_operator)
     sd_grr = np.sqrt(var_grr)
     sd_part = np.sqrt(var_part)
     sd_total = np.sqrt(var_total)
@@ -307,6 +313,7 @@ def calculate_gage_rr_crossed(
     # Study variations (6*SD)
     sv_repeatability = sigma_multiplier * sd_repeatability
     sv_reproducibility = sigma_multiplier * sd_reproducibility
+    sv_operator = sigma_multiplier * sd_operator
     sv_grr = sigma_multiplier * sd_grr
     sv_part = sigma_multiplier * sd_part
     sv_total = sigma_multiplier * sd_total
@@ -315,12 +322,14 @@ def calculate_gage_rr_crossed(
     # % Contribution (variance based)
     pct_contrib_repeatability = (var_repeatability / var_total * 100) if var_total > 0 else 0
     pct_contrib_reproducibility = (var_reproducibility / var_total * 100) if var_total > 0 else 0
+    pct_contrib_operator = (var_operator / var_total * 100) if var_total > 0 else 0
     pct_contrib_grr = (var_grr / var_total * 100) if var_total > 0 else 0
     pct_contrib_part = (var_part / var_total * 100) if var_total > 0 else 0
 
     # % Study Variation (6*SD based)
     pct_study_repeatability = (sv_repeatability / sv_total * 100) if sv_total > 0 else 0
     pct_study_reproducibility = (sv_reproducibility / sv_total * 100) if sv_total > 0 else 0
+    pct_study_operator = (sv_operator / sv_total * 100) if sv_total > 0 else 0
     pct_study_grr = (sv_grr / sv_total * 100) if sv_total > 0 else 0
     pct_study_part = (sv_part / sv_total * 100) if sv_total > 0 else 0
 
@@ -412,6 +421,15 @@ def calculate_gage_rr_crossed(
             "%Tolerance": pct_tol_reproducibility,
         },
         {
+            "Source": "Operator",
+            "VarComp": var_operator,
+            "StdDev": sd_operator,
+            "StudyVar": sv_operator,
+            "%StudyVar": pct_study_operator,
+            "%Contribution": pct_contrib_operator,
+            "%Tolerance": (sv_operator / tolerance * 100) if tolerance > 0 else 0,
+        },
+        {
             "Source": "Part-to-Part",
             "VarComp": var_part,
             "StdDev": sd_part,
@@ -451,6 +469,12 @@ def calculate_gage_rr_crossed(
             "%Contribution": f"{pct_contrib_reproducibility:.4f}%",
             "%Study Var": f"{pct_study_reproducibility:.4f}%",
             "%Tolerance": f"{pct_tol_reproducibility:.4f}%",
+        },
+        {
+            "Source": "Operator",
+            "%Contribution": f"{pct_contrib_operator:.4f}%",
+            "%Study Var": f"{pct_study_operator:.4f}%",
+            "%Tolerance": f"{(sv_operator / tolerance * 100) if tolerance > 0 else 0:.4f}%",
         },
         {
             "Source": "Part-to-Part",

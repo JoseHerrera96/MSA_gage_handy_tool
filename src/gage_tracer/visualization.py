@@ -14,6 +14,7 @@ from typing import Any
 
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
 import numpy as np
 import pandas as pd
 
@@ -596,6 +597,7 @@ def create_gage_rr_dashboard(
     part_col: str = "Part",
     op_col: str = "Operator",
     resp_col: str = "Measurement",
+  dark_mode: bool = False,
 ) -> plt.Figure:
     """Generate 6-panel Gage R&R Crossed dashboard following Minitab standards.
 
@@ -613,28 +615,31 @@ def create_gage_rr_dashboard(
         part_col: Name of part column (default "Part").
         op_col: Name of operator column (default "Operator").
         resp_col: Name of measurement column (default "Measurement").
+        dark_mode: Use the dark Streamlit preview palette when ``True``.
 
     Returns:
         matplotlib Figure object with 6 panels.
     """
     # Color palette (consistent with project)
-    CLR_DATA = "#3A3A44"       # Primary data
+    CLR_DATA = "#D8DEE9" if dark_mode else "#3A3A44"       # Primary data
     CLR_REF = "#1A8754"        # Reference/good
     CLR_LIMIT = "#FF6135"      # Control limits/attention
     CLR_MEAN = "#FF420D"       # Mean/accent
-    CLR_GRID = "#E0E0E4"      # Grid
-    CLR_LABEL = "#5A5A66"      # Labels
-    CLR_TITLE = "#010101"      # Titles
-    CLR_SPINE = "#D1D1D6"      # Borders
-    CLR_CARD = "#FFFFFF"       # Background
+    CLR_GRID = "#334155" if dark_mode else "#E0E0E4"      # Grid
+    CLR_LABEL = "#CBD5E1" if dark_mode else "#5A5A66"      # Labels
+    CLR_TITLE = "#F8FAFC" if dark_mode else "#010101"      # Titles
+    CLR_SPINE = "#475569" if dark_mode else "#D1D1D6"      # Borders
+    CLR_CARD = "#0E1826" if dark_mode else "#FFFFFF"       # Background
+    CLR_FIGURE = "#0B1220" if dark_mode else "#FEFEFE"
 
     # Extract variance components for chart 1
     var_df = results_dict["variance_components"]
     gage_eval_df = results_dict["gage_evaluation"]
 
     # Create 2x3 figure
-    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-    fig.patch.set_facecolor("#FEFEFE")
+    figure_height = 14 if dark_mode else 12
+    fig, axes = plt.subplots(2, 3, figsize=(18, figure_height))
+    fig.patch.set_facecolor(CLR_FIGURE)
     if "Characteristic" in df.columns and df["Characteristic"].nunique() == 1:
       fig.suptitle(
         f"Gage R&R (Crossed) - Characteristic: {df['Characteristic'].iloc[0]}",
@@ -645,27 +650,74 @@ def create_gage_rr_dashboard(
 
     # Panel 1: Components of Variation (Bar Chart)
     ax1 = axes[0, 0]
-    sources = ["Total Gage R&R", "Repeatability", "Reproducibility", "Part-to-Part"]
-    contrib_pct = []
+    sources = ["Total Gage R&R", "Repeatability", "Reproducibility", "Operator", "Part-to-Part"]
+    contribution_values = []
+    study_var_values = []
+    tolerance_values = []
     for source in sources:
         row = var_df[var_df["Source"] == source].iloc[0]
-        contrib_pct.append(row["%Contribution"])
+        contribution_values.append(float(row["%Contribution"]))
+        study_var_values.append(float(row["%StudyVar"]))
+        tolerance_values.append(float(row["%Tolerance"]))
 
-    bars = ax1.bar(sources, contrib_pct, color=[CLR_LIMIT, CLR_DATA, CLR_DATA, CLR_REF], alpha=0.8)
-    ax1.set_ylabel("% Contribution", fontsize=9, color=CLR_LABEL)
+    x_positions = np.arange(len(sources))
+    bar_width = 0.25
+    ax1.bar(
+      x_positions - bar_width,
+      contribution_values,
+      bar_width,
+      color=CLR_LIMIT,
+      alpha=0.85,
+      label="% Contribution",
+    )
+    ax1.bar(
+      x_positions,
+      study_var_values,
+      bar_width,
+      color=CLR_DATA,
+      alpha=0.85,
+      label="% Study Var",
+    )
+    ax1.bar(
+      x_positions + bar_width,
+      tolerance_values,
+      bar_width,
+      color=CLR_REF,
+      alpha=0.85,
+      label="% Tolerance",
+    )
+    ax1.set_xticks(x_positions)
+    ax1.set_xticklabels(sources, rotation=45, ha="right")
+    ax1.set_ylabel("Percent", fontsize=9, color=CLR_LABEL)
     ax1.set_title("Components of Variation", fontsize=10, fontweight="bold", color=CLR_TITLE)
-    ax1.tick_params(labelsize=8, colors=CLR_LABEL, rotation=45)
+    ax1.tick_params(labelsize=8, colors=CLR_LABEL)
     ax1.grid(True, alpha=0.3, color=CLR_GRID, axis="y")
+    ax1.legend(fontsize=7, loc="upper left", facecolor=CLR_CARD, edgecolor=CLR_SPINE)
     for spine in ax1.spines.values():
         spine.set_color(CLR_SPINE)
 
-    # Panel 2: Measurement by Part (Scatter + Line)
+    # Panel 2: Measurement by Part (all trials grouped by physical part)
     ax2 = axes[0, 1]
-    for operator in df[op_col].unique():
-        op_data = df[df[op_col] == operator]
-        ax2.plot(range(len(op_data)), op_data[resp_col], "-o", markersize=4, linewidth=1, alpha=0.7, label=operator)
+    parts = sorted(df[part_col].unique())
+    part_positions = np.arange(len(parts))
+    for operator in sorted(df[op_col].unique()):
+      operator_means = []
+      for part in parts:
+        values = df[(df[op_col] == operator) & (df[part_col] == part)][resp_col]
+        operator_means.append(float(values.mean()))
+      ax2.plot(
+        part_positions,
+        operator_means,
+        "-o",
+        markersize=4,
+        linewidth=1.2,
+        alpha=0.8,
+        label=operator,
+      )
 
-    ax2.set_xlabel("Measurement Order", fontsize=9, color=CLR_LABEL)
+    ax2.set_xlabel("Part", fontsize=9, color=CLR_LABEL)
+    ax2.set_xticks(part_positions)
+    ax2.set_xticklabels(parts, rotation=45, ha="right")
     ax2.set_ylabel(resp_col, fontsize=9, color=CLR_LABEL)
     ax2.set_title("Measurement by Part", fontsize=10, fontweight="bold", color=CLR_TITLE)
     ax2.tick_params(labelsize=8, colors=CLR_LABEL)
@@ -674,40 +726,39 @@ def create_gage_rr_dashboard(
     for spine in ax2.spines.values():
         spine.set_color(CLR_SPINE)
 
-    # Panel 3: R Chart by Operator
+    # Panel 3: R Chart by Operator (one subgroup range per part)
     ax3 = axes[0, 2]
-    r_values = []
-    operator_labels = []
+    operator_labels = sorted(df[op_col].unique())
+    r_values_by_operator: dict[str, list[float]] = {}
 
-    for operator in sorted(df[op_col].unique()):
-        op_data = df[df[op_col] == operator]
-        # Calculate R for each part (3 trials per part)
-        part_ranges = []
-        for part in sorted(df[part_col].unique()):
-            part_trials = op_data[op_data[part_col] == part][resp_col].values
-            if len(part_trials) >= 2:
-                part_ranges.append(part_trials.max() - part_trials.min())
-        if part_ranges:
-            r_bar = np.mean(part_ranges)
-            r_values.append(r_bar)
-            operator_labels.append(operator)
+    for operator in operator_labels:
+      op_data = df[df[op_col] == operator]
+      part_ranges = []
+      for part in parts:
+        part_trials = op_data[op_data[part_col] == part][resp_col].values
+        part_ranges.append(float(part_trials.max() - part_trials.min()))
+      r_values_by_operator[operator] = part_ranges
 
-    if r_values:
-        x_pos = range(len(r_values))
-        ax3.bar(x_pos, r_values, color=CLR_DATA, alpha=0.7, edgecolor=CLR_SPINE)
+    all_ranges = [value for values in r_values_by_operator.values() for value in values]
+    r_bar = float(np.mean(all_ranges)) if all_ranges else 0.0
+    ucl_r = _D4 * r_bar
+    lcl_r = _D3 * r_bar
+    for operator in operator_labels:
+      ax3.plot(
+        part_positions,
+        r_values_by_operator[operator],
+        "-o",
+        markersize=3,
+        linewidth=1,
+        label=operator,
+      )
+    ax3.axhline(y=ucl_r, color=CLR_LIMIT, ls="--", lw=1.5, label=f"UCL ({ucl_r:.4f})")
+    ax3.axhline(y=r_bar, color=CLR_REF, ls="-", lw=1.5, label=f"R-bar ({r_bar:.4f})")
+    if lcl_r > 0:
+      ax3.axhline(y=lcl_r, color=CLR_LIMIT, ls="--", lw=1.5, label=f"LCL ({lcl_r:.4f})")
 
-        # Control limits
-        r_overall = np.mean(r_values)
-        ucl_r = _D4 * r_overall
-        lcl_r = _D3 * r_overall
-
-        ax3.axhline(y=ucl_r, color=CLR_LIMIT, ls="--", lw=1.5, label=f"UCL ({ucl_r:.4f})")
-        ax3.axhline(y=r_overall, color=CLR_REF, ls="-", lw=1.5, label=f"R-bar ({r_overall:.4f})")
-        if lcl_r > 0:
-            ax3.axhline(y=lcl_r, color=CLR_LIMIT, ls="--", lw=1.5, label=f"LCL ({lcl_r:.4f})")
-
-    ax3.set_xticks(range(len(operator_labels)))
-    ax3.set_xticklabels(operator_labels, rotation=45, ha="right", fontsize=8)
+    ax3.set_xticks(part_positions)
+    ax3.set_xticklabels(parts, rotation=45, ha="right", fontsize=8)
     ax3.set_ylabel("Range (R)", fontsize=9, color=CLR_LABEL)
     ax3.set_title("R Chart by Operator", fontsize=10, fontweight="bold", color=CLR_TITLE)
     ax3.tick_params(labelsize=8, colors=CLR_LABEL)
@@ -719,7 +770,20 @@ def create_gage_rr_dashboard(
     # Panel 4: Measurement by Operator (Boxplots)
     ax4 = axes[1, 0]
     box_data = [df[df[op_col] == op][resp_col].values for op in sorted(df[op_col].unique())]
-    bp = ax4.boxplot(box_data, labels=sorted(df[op_col].unique()), patch_artist=True)
+    bp = ax4.boxplot(
+      box_data,
+      labels=sorted(df[op_col].unique()),
+      patch_artist=True,
+      flierprops={
+        "marker": "o",
+        "markerfacecolor": CLR_LIMIT,
+        "markeredgecolor": CLR_LIMIT,
+        "markersize": 5,
+        "alpha": 0.95,
+      },
+      whiskerprops={"color": CLR_DATA, "linewidth": 1.2},
+      capprops={"color": CLR_DATA, "linewidth": 1.2},
+    )
 
     for patch in bp["boxes"]:
         patch.set_facecolor(CLR_DATA)
@@ -730,6 +794,37 @@ def create_gage_rr_dashboard(
         median.set_color(CLR_MEAN)
         median.set_linewidth(2)
 
+    # Minitab overlays individual observations on this panel. Highlight only
+    # observations outside the standard 1.5*IQR whisker limits.
+    for position, operator in enumerate(operator_labels, start=1):
+      values = df[df[op_col] == operator][resp_col].to_numpy(dtype=float)
+      if values.size == 0:
+        continue
+      quartile_1, quartile_3 = np.percentile(values, [25, 75])
+      iqr = quartile_3 - quartile_1
+      lower_fence = quartile_1 - 1.5 * iqr
+      upper_fence = quartile_3 + 1.5 * iqr
+      outlier_mask = (values < lower_fence) | (values > upper_fence)
+      jitter = np.linspace(-0.12, 0.12, values.size)
+      ax4.scatter(
+        np.full(values.size, position) + jitter,
+        values,
+        s=16,
+        color=CLR_DATA,
+        alpha=0.7,
+        zorder=3,
+      )
+      if outlier_mask.any():
+        ax4.scatter(
+          np.full(outlier_mask.sum(), position) + jitter[outlier_mask],
+          values[outlier_mask],
+          s=34,
+          color=CLR_LIMIT,
+          edgecolors=CLR_LIMIT,
+          zorder=4,
+          label="Outlier" if position == 1 else "_nolegend_",
+        )
+
     ax4.set_ylabel(resp_col, fontsize=9, color=CLR_LABEL)
     ax4.set_title("Measurement by Operator", fontsize=10, fontweight="bold", color=CLR_TITLE)
     ax4.tick_params(labelsize=8, colors=CLR_LABEL)
@@ -737,34 +832,36 @@ def create_gage_rr_dashboard(
     for spine in ax4.spines.values():
         spine.set_color(CLR_SPINE)
 
-    # Panel 5: Xbar Chart by Operator
+    # Panel 5: Xbar Chart by Operator (one subgroup mean per part)
     ax5 = axes[1, 1]
-    xbar_values = []
-    for operator in sorted(df[op_col].unique()):
-        op_data = df[df[op_col] == operator]
-        # Calculate Xbar for each part
-        part_means = []
-        for part in sorted(df[part_col].unique()):
-            part_trials = op_data[op_data[part_col] == part][resp_col].values
-            part_means.append(np.mean(part_trials))
-        xbar_values.append(np.mean(part_means))
+    xbar_values_by_operator: dict[str, list[float]] = {}
+    for operator in operator_labels:
+      op_data = df[df[op_col] == operator]
+      part_means = []
+      for part in parts:
+        part_trials = op_data[op_data[part_col] == part][resp_col].values
+        part_means.append(float(np.mean(part_trials)))
+      xbar_values_by_operator[operator] = part_means
 
-    if xbar_values:
-        x_pos = range(len(xbar_values))
-        ax5.bar(x_pos, xbar_values, color=CLR_DATA, alpha=0.7, edgecolor=CLR_SPINE)
+    all_xbars = [value for values in xbar_values_by_operator.values() for value in values]
+    x_double_bar = float(np.mean(all_xbars)) if all_xbars else 0.0
+    ucl_x = x_double_bar + _A2 * r_bar
+    lcl_x = x_double_bar - _A2 * r_bar
+    for operator in operator_labels:
+        ax5.plot(
+            part_positions,
+            xbar_values_by_operator[operator],
+            "-o",
+            markersize=3,
+            linewidth=1,
+            label=operator,
+        )
+    ax5.axhline(y=ucl_x, color=CLR_LIMIT, ls="--", lw=1.5, label=f"UCL ({ucl_x:.4f})")
+    ax5.axhline(y=x_double_bar, color=CLR_REF, ls="-", lw=1.5, label=f"X-bar ({x_double_bar:.4f})")
+    ax5.axhline(y=lcl_x, color=CLR_LIMIT, ls="--", lw=1.5, label=f"LCL ({lcl_x:.4f})")
 
-        # Control limits
-        x_double_bar = np.mean(xbar_values)
-        r_overall = np.mean(r_values) if r_values else 1.0
-        ucl_x = x_double_bar + _A2 * r_overall
-        lcl_x = x_double_bar - _A2 * r_overall
-
-        ax5.axhline(y=ucl_x, color=CLR_LIMIT, ls="--", lw=1.5, label=f"UCL ({ucl_x:.4f})")
-        ax5.axhline(y=x_double_bar, color=CLR_REF, ls="-", lw=1.5, label=f"X-bar ({x_double_bar:.4f})")
-        ax5.axhline(y=lcl_x, color=CLR_LIMIT, ls="--", lw=1.5, label=f"LCL ({lcl_x:.4f})")
-
-    ax5.set_xticks(range(len(operator_labels)))
-    ax5.set_xticklabels(operator_labels, rotation=45, ha="right", fontsize=8)
+    ax5.set_xticks(part_positions)
+    ax5.set_xticklabels(parts, rotation=45, ha="right", fontsize=8)
     ax5.set_ylabel("X-bar", fontsize=9, color=CLR_LABEL)
     ax5.set_title("Xbar Chart by Operator", fontsize=10, fontweight="bold", color=CLR_TITLE)
     ax5.tick_params(labelsize=8, colors=CLR_LABEL)
@@ -775,15 +872,17 @@ def create_gage_rr_dashboard(
 
     # Panel 6: Part * Operator Interaction
     ax6 = axes[1, 2]
-    for operator in sorted(df[op_col].unique()):
+    for operator in operator_labels:
         op_data = df[df[op_col] == operator]
         part_means = []
-        for part in sorted(df[part_col].unique()):
+        for part in parts:
             part_trials = op_data[op_data[part_col] == part][resp_col].values
             part_means.append(np.mean(part_trials))
-        ax6.plot(range(len(part_means)), part_means, "-o", markersize=4, linewidth=1.5, alpha=0.8, label=operator)
+        ax6.plot(part_positions, part_means, "-o", markersize=4, linewidth=1.5, alpha=0.8, label=operator)
 
     ax6.set_xlabel("Part", fontsize=9, color=CLR_LABEL)
+    ax6.set_xticks(part_positions)
+    ax6.set_xticklabels(parts, rotation=45, ha="right")
     ax6.set_ylabel("Mean Measurement", fontsize=9, color=CLR_LABEL)
     ax6.set_title("Part * Operator Interaction", fontsize=10, fontweight="bold", color=CLR_TITLE)
     ax6.tick_params(labelsize=8, colors=CLR_LABEL)
@@ -791,6 +890,11 @@ def create_gage_rr_dashboard(
     ax6.legend(fontsize=7, loc="best", facecolor=CLR_CARD, edgecolor=CLR_SPINE, labelcolor=CLR_LABEL)
     for spine in ax6.spines.values():
         spine.set_color(CLR_SPINE)
+
+    for axis in axes.flat:
+        axis.set_facecolor(CLR_CARD)
+        axis.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
+        axis.ticklabel_format(axis="y", style="plain", useOffset=False)
 
     fig.tight_layout(pad=2.0, rect=(0, 0, 1, 0.96))
     return fig
@@ -806,13 +910,6 @@ def create_gage_rr_html_dashboard(
     Embeds the 6-panel chart as a Base64 image and displays KPI cards, ANOVA table,
     variance components, and gage evaluation tables.
 
-    Args:
-        df: Measurement DataFrame.
-        results_dict: Results dictionary from calculate_gage_rr_crossed.
-        output_path: Optional destination path for the .html file.
-
-    Returns:
-        The rendered HTML content.
     """
     import base64
     import time
@@ -889,6 +986,11 @@ def create_gage_rr_html_dashboard(
   padding:var(--space-md) var(--space-lg); margin-bottom:var(--space-lg);
   box-shadow:var(--shadow-card); border:1px solid var(--color-border-subtle);
 }}
+.chart-section {{
+  background:var(--color-bg-elevated); border-radius:var(--radius-md);
+  padding:var(--space-md) var(--space-lg); margin-bottom:var(--space-lg);
+  border:1px solid var(--color-border-subtle);
+}}
 .section-title {{
   font-size:14px; font-weight:700; color:var(--color-text-primary);
   margin-bottom:var(--space-md); text-transform:uppercase; letter-spacing:0.5px;
@@ -938,10 +1040,10 @@ def create_gage_rr_html_dashboard(
   </div>
 </div>
 
-<div class="section-card">
-  <div class="section-title">6-Panel Gage R&amp;R Dashboard</div>
+<div class="chart-section">
+  <div class="section-title">Gage R&amp;R Dashboard</div>
   <div class="chart-container">
-    <img src="data:image/png;base64,{img_b64}" alt="6-Panel Gage R&amp;R Dashboard">
+    <img src="data:image/png;base64,{img_b64}" alt="Gage R&amp;R Dashboard">
   </div>
 </div>
 
