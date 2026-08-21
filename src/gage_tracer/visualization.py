@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from io import BytesIO
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -634,6 +635,13 @@ def create_gage_rr_dashboard(
     # Create 2x3 figure
     fig, axes = plt.subplots(2, 3, figsize=(18, 12))
     fig.patch.set_facecolor("#FEFEFE")
+    if "Characteristic" in df.columns and df["Characteristic"].nunique() == 1:
+      fig.suptitle(
+        f"Gage R&R (Crossed) - Characteristic: {df['Characteristic'].iloc[0]}",
+        fontsize=14,
+        fontweight="bold",
+        color=CLR_TITLE,
+      )
 
     # Panel 1: Components of Variation (Bar Chart)
     ax1 = axes[0, 0]
@@ -784,5 +792,179 @@ def create_gage_rr_dashboard(
     for spine in ax6.spines.values():
         spine.set_color(CLR_SPINE)
 
-    plt.tight_layout(pad=2.0)
+    fig.tight_layout(pad=2.0, rect=(0, 0, 1, 0.96))
     return fig
+
+
+def create_gage_rr_html_dashboard(
+    df: pd.DataFrame,
+    results_dict: dict[str, Any],
+    output_path: Path | None = None,
+) -> str:
+    """Generate a self-contained HTML dashboard for Gage R&R Crossed results.
+
+    Embeds the 6-panel chart as a Base64 image and displays KPI cards, ANOVA table,
+    variance components, and gage evaluation tables.
+
+    Args:
+        df: Measurement DataFrame.
+        results_dict: Results dictionary from calculate_gage_rr_crossed.
+        output_path: Optional destination path for the .html file.
+
+    Returns:
+        The rendered HTML content.
+    """
+    import base64
+    import time
+    from io import BytesIO
+
+    # 1. Render 6-panel figure to Base64
+    fig = create_gage_rr_dashboard(df, results_dict)
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight", facecolor="#FEFEFE")
+    plt.close(fig)
+    buf.seek(0)
+    img_b64 = base64.b64encode(buf.read()).decode("utf-8")
+
+    # 2. Extract key metrics
+    grr_pct = float(results_dict["total_grr_pct"])
+    ndc = int(results_dict["ndc"])
+    sv_total = float(results_dict["study_variation"])
+    n_parts = int(results_dict["n_parts"])
+    n_ops = int(results_dict["n_operators"])
+    n_trials = int(results_dict["n_trials"])
+    characteristic = (
+      str(df["Characteristic"].iloc[0])
+      if "Characteristic" in df.columns and df["Characteristic"].nunique() == 1
+      else "All characteristics"
+    )
+    characteristic_html = escape(characteristic)
+
+    # Industrial verdict
+    if grr_pct < 10 and ndc >= 5:
+        verdict = "PASS"
+        verdict_color = "var(--color-status-accept)"
+        verdict_msg = "Excellent - Measurement system is acceptable"
+    elif 10 <= grr_pct <= 30 and ndc >= 5:
+        verdict = "MARGINAL"
+        verdict_color = "var(--color-brand-primary)"
+        verdict_msg = "Marginal - Measurement system may be acceptable depending on application"
+    else:
+        verdict = "FAIL"
+        verdict_color = "var(--color-status-reject)"
+        verdict_msg = "Unacceptable - Measurement system needs improvement"
+
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    anova_html = results_dict["anova_table"].to_html(index=False, classes="stats-table")
+    var_html = results_dict["variance_components"].to_html(index=False, classes="stats-table")
+    eval_html = results_dict["gage_evaluation"].to_html(index=False, classes="stats-table")
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gage R&amp;R (Crossed) — {characteristic_html}</title>
+<style>
+{_CSS_TEMPLATE}
+.stats-table {{
+  width:100%; border-collapse:collapse; font-size:12px; margin-bottom:16px;
+  background:#FFFFFF; border-radius:6px; overflow:hidden; box-shadow:var(--shadow-card);
+}}
+.stats-table th {{
+  background:var(--color-bg-elevated); color:var(--color-text-secondary);
+  font-size:10px; text-transform:uppercase; letter-spacing:1px; font-weight:600;
+  padding:10px 14px; text-align:left; border-bottom:1px solid var(--color-border-default);
+}}
+.stats-table td {{
+  padding:8px 14px; border-bottom:1px solid var(--color-border-subtle);
+  color:var(--color-text-primary); font-family:var(--font-mono);
+}}
+.stats-table tr:nth-child(even) td {{
+  background:var(--color-bg-elevated);
+}}
+.section-card {{
+  background:var(--color-bg-surface); border-radius:var(--radius-md);
+  padding:var(--space-md) var(--space-lg); margin-bottom:var(--space-lg);
+  box-shadow:var(--shadow-card); border:1px solid var(--color-border-subtle);
+}}
+.section-title {{
+  font-size:14px; font-weight:700; color:var(--color-text-primary);
+  margin-bottom:var(--space-md); text-transform:uppercase; letter-spacing:0.5px;
+}}
+.chart-container img {{
+  width:100%; height:auto; border-radius:var(--radius-sm); display:block;
+}}
+</style>
+</head>
+<body>
+
+<div class="dash-header">
+  <h1 class="dash-title"><em>Gage R&amp;R (Crossed)</em> ANOVA Dashboard — {characteristic_html}</h1>
+  <span class="dash-date">{timestamp}</span>
+</div>
+
+<div class="kpi-row">
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-brand-primary);">
+    <div class="kpi-label">Characteristic</div>
+    <div class="kpi-value" style="font-size:20px;">{characteristic_html}</div>
+    <div class="kpi-sub">Independent Gage R&amp;R report</div>
+  </div>
+  <div class="kpi-card kpi-primary" style="border-left:4px solid {verdict_color};">
+    <div class="kpi-label">Verdict</div>
+    <div class="kpi-value" style="color:{verdict_color}; font-size:32px;">{verdict}</div>
+    <div class="kpi-sub">{verdict_msg}</div>
+  </div>
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-brand-primary);">
+    <div class="kpi-label">% Total Gage R&amp;R</div>
+    <div class="kpi-value">{grr_pct:.2f}%</div>
+    <div class="kpi-sub">Target &lt; 10%</div>
+  </div>
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-status-accept);">
+    <div class="kpi-label">NDC</div>
+    <div class="kpi-value">{ndc}</div>
+    <div class="kpi-sub">Target &ge; 5</div>
+  </div>
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-text-secondary);">
+    <div class="kpi-label">Study Variation</div>
+    <div class="kpi-value" style="font-size:20px;">{sv_total:.6f}</div>
+    <div class="kpi-sub">6 &times; SD</div>
+  </div>
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-brand-accent);">
+    <div class="kpi-label">Design</div>
+    <div class="kpi-value" style="font-size:18px;">{n_parts}P &times; {n_ops}O &times; {n_trials}T</div>
+    <div class="kpi-sub">{len(df)} measurements</div>
+  </div>
+</div>
+
+<div class="section-card">
+  <div class="section-title">6-Panel Gage R&amp;R Dashboard</div>
+  <div class="chart-container">
+    <img src="data:image/png;base64,{img_b64}" alt="6-Panel Gage R&amp;R Dashboard">
+  </div>
+</div>
+
+<div class="section-card">
+  <div class="section-title">ANOVA Table</div>
+  {anova_html}
+</div>
+
+<div class="section-card">
+  <div class="section-title">Variance Components</div>
+  {var_html}
+</div>
+
+<div class="section-card">
+  <div class="section-title">Gage Evaluation</div>
+  {eval_html}
+</div>
+
+</body>
+</html>"""
+
+    if output_path is not None:
+        output_path.write_text(html, encoding="utf-8")
+        print(f"Gage R&R Dashboard HTML created: {output_path}")
+
+    return html

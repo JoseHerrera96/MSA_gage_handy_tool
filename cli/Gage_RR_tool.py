@@ -1,19 +1,22 @@
 """Entry point for the Gage R&R (Crossed) ANOVA pipeline.
 
-This is the CLI script for Gage R&R Crossed analysis. Drop your raw data file
-as ``GAGE RR DATA.txt`` in the gage_rr/raw folder and execute::
+This CLI processes crossed Gage R&R report blocks. A report may contain one or
+more named measurement characteristics; every characteristic receives an
+independent ANOVA result. Place the raw file as ``GAGE RR DATA.txt`` in
+``gage_rr/raw`` and execute::
 
     python Gage_RR_tool.py
 
-It will produce three output files in the gage_rr directory:
+It produces shared normalized data plus one report set per characteristic:
 
 - ``gage_rr/data/gage rr data.txt``         — parsed measurements (TSV)
-- ``gage_rr/reports/Gage_RR_Summary.txt``   — Minitab-style text report
-- ``gage_rr/dashboards/Gage_RR_Dashboard.html`` — 6-panel HTML dashboard
+- ``gage_rr/reports/Gage_RR_Summary_<characteristic>.txt`` — text report
+- ``gage_rr/dashboards/Gage_RR_Dashboard_<characteristic>.html`` — dashboard
 """
 
 from __future__ import annotations
 
+import argparse
 import shutil
 import sys
 import time
@@ -32,8 +35,8 @@ if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
 from gage_tracer.data_parser import transform_gage_rr_data       # noqa: E402  # type: ignore[import-not-found]
-from gage_tracer.calculations import calculate_gage_rr_crossed    # noqa: E402  # type: ignore[import-not-found]
-from gage_tracer.visualization import create_gage_rr_dashboard     # noqa: E402  # type: ignore[import-not-found]
+from gage_tracer.calculations import calculate_gage_rr_by_characteristic  # noqa: E402  # type: ignore[import-not-found]
+from gage_tracer.visualization import create_gage_rr_dashboard, create_gage_rr_html_dashboard     # noqa: E402  # type: ignore[import-not-found]
 
 # Structured directories for Gage R&R output files.
 GRR_ROOT: Path = PROJECT_ROOT / "gage_rr"
@@ -118,13 +121,18 @@ def _generate_text_report(
         fh.write("=" * 60 + "\n")
 
 
-def run() -> None:
-    """Run the full Gage R&R Crossed pipeline: Parse → Calculate → Report → Dashboard.
+def _file_stem(characteristic: str) -> str:
+    """Return a filesystem-safe stem for a characteristic report."""
+    return "".join(char if char.isalnum() or char in "-_" else "_" for char in characteristic)
+
+
+def run(num_operators: int = 3, trials_per_part: int = 3) -> None:
+    """Run the full multireport Gage R&R pipeline.
 
     Steps:
-        1. Parse raw data file (90 measurements) into structured TSV.
-        2. Compute ANOVA and variance components.
-        3. Generate text report and 6-panel HTML dashboard.
+        1. Parse complete raw reports into structured TSV data.
+        2. Compute an independent ANOVA per measurement characteristic.
+        3. Generate a text report and 6-panel HTML dashboard per characteristic.
     """
     print("=" * 50)
     print("  Gage R&R (Crossed) — Automated Report")
@@ -160,10 +168,15 @@ def run() -> None:
     if raw_path is not None:
         print(f"\n[1/3] Parsing raw Gage R&R data: {raw_path.name}")
         try:
-            df = transform_gage_rr_data(raw_path, GRR_DATA_FILE)
+            df = transform_gage_rr_data(
+                raw_path,
+                GRR_DATA_FILE,
+                num_operators=num_operators,
+                trials_per_part=trials_per_part,
+            )
         except ValueError as e:
             print(f"ERROR: {e}")
-            print("Please ensure the file contains exactly 90 measurements with NOMINAL, UPPER_TOL, and LOWER_TOL specifications.")
+            print("Please ensure the report count forms a balanced crossed design for the selected operators and trials.")
             return
     else:
         print(f"\n[1/3] Raw data file not found ({RAW_FILE.name} or {ROOT_RAW_FILE.name});")
@@ -177,35 +190,37 @@ def run() -> None:
     print(f"\n[2/3] Computing Gage R&R ANOVA metrics …")
     df: pd.DataFrame = pd.read_csv(GRR_DATA_FILE, sep="\t")
 
-    # Extract tolerance from DataFrame
-    tolerance = df["Tolerance"].iloc[0]
-
     try:
-        results = calculate_gage_rr_crossed(df, tolerance)
+        all_results = calculate_gage_rr_by_characteristic(df)
     except Exception as e:
         print(f"ERROR computing Gage R&R metrics: {e}")
         return
 
-    # Step 3 — Generate text report.
-    _generate_text_report(results, SUMMARY_TXT)
-    print(f"     Report generated with {results['n_parts']} parts and {results['n_operators']} operators.")
-
-    # Step 4 — Build the 6-panel HTML dashboard.
-    print(f"\n[3/3] Generating 6-panel dashboard …")
-    fig = create_gage_rr_dashboard(df, results)
-
-    # Save figure as PNG
+    # Step 3/4 — Generate an independent report and dashboard per characteristic.
+    print(f"\n[3/3] Generating {len(all_results)} characteristic reports …")
     import matplotlib.pyplot as plt
-    dashboard_png = GRR_DASHBOARD_DIR / "Gage_RR_Dashboard.png"
-    fig.savefig(dashboard_png, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    print(f"     Dashboard saved as PNG: {dashboard_png.name}")
+    for characteristic, results in all_results.items():
+        stem = _file_stem(characteristic)
+        report_path = GRR_REPORT_DIR / f"Gage_RR_Summary_{stem}.txt"
+        dashboard_path = GRR_DASHBOARD_DIR / f"Gage_RR_Dashboard_{stem}.html"
+        dashboard_png = GRR_DASHBOARD_DIR / f"Gage_RR_Dashboard_{stem}.png"
+        characteristic_df = df[df["Characteristic"] == characteristic]
+
+        _generate_text_report(results, report_path)
+        fig = create_gage_rr_dashboard(characteristic_df, results)
+        fig.savefig(dashboard_png, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        create_gage_rr_html_dashboard(characteristic_df, results, dashboard_path)
+        print(f"     [{characteristic}] {report_path.name} | {dashboard_path.name}")
 
     print(f"\n{'=' * 50}")
-    print(f"  [OK] Text report  → {SUMMARY_TXT.name}")
-    print(f"  [OK] Dashboard    → {dashboard_png.name}")
+    print(f"  [OK] Generated {len(all_results)} independent Gage R&R reports")
     print(f"{'=' * 50}")
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser(description="Generate multireport crossed Gage R&R analyses.")
+    parser.add_argument("--operators", type=int, default=3, help="Number of operators in report order.")
+    parser.add_argument("--trials", type=int, default=3, help="Trials per Part/Operator combination.")
+    args = parser.parse_args()
+    run(num_operators=args.operators, trials_per_part=args.trials)

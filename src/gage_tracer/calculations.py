@@ -475,3 +475,52 @@ def calculate_gage_rr_crossed(
         "n_operators": n_operators,
         "n_trials": n_trials,
     }
+
+
+def calculate_gage_rr_by_characteristic(
+    df: pd.DataFrame,
+    characteristic_col: str = "Characteristic",
+    tolerance_col: str = "Tolerance",
+    alpha_pool: float = 0.05,
+    sigma_multiplier: float = 6.0,
+) -> dict[str, dict[str, object]]:
+    """Run a separate crossed Gage R&R analysis for every characteristic.
+
+    Args:
+        df: Long-format Gage R&R data with a characteristic column and the
+            columns required by :func:`calculate_gage_rr_crossed`.
+        characteristic_col: Column that identifies the measured characteristic.
+        tolerance_col: Column containing the total tolerance for each row.
+        alpha_pool: Interaction pooling significance level.
+        sigma_multiplier: Study-variation multiplier.
+
+    Returns:
+        A mapping from characteristic name to its independent Gage R&R result.
+
+    Raises:
+        ValueError: If required columns are missing or a characteristic has
+            more than one tolerance value.
+    """
+    required_columns = {characteristic_col, tolerance_col, "Part", "Operator", "Measurement"}
+    missing_columns = required_columns - set(df.columns)
+    if missing_columns:
+        raise ValueError(f"Missing Gage R&R columns: {sorted(missing_columns)}")
+
+    results: dict[str, dict[str, object]] = {}
+    for characteristic, characteristic_df in df.groupby(characteristic_col, sort=True):
+        tolerances = characteristic_df[tolerance_col].dropna().unique()
+        if len(tolerances) != 1:
+            raise ValueError(
+                f"Characteristic '{characteristic}' must have exactly one tolerance value; "
+                f"found {len(tolerances)}."
+            )
+        results[str(characteristic)] = calculate_gage_rr_crossed(
+            characteristic_df,
+            float(tolerances[0]),
+            alpha_pool=alpha_pool,
+            sigma_multiplier=sigma_multiplier,
+        )
+
+    if not results:
+        raise ValueError("No Gage R&R characteristics were found.")
+    return results

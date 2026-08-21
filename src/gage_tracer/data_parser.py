@@ -300,141 +300,168 @@ def transform_raw_data(
 
 def _parse_gage_rr_raw_data(
     input_file: _InputSource,
-) -> tuple[list[float], tuple[float, float, float]]:
-    """Parse raw Gage R&R Crossed measurement file.
+) -> list[dict[str, object]]:
+    """Parse raw Gage R&R Crossed measurement file (Type 1 format).
 
-    Expects exactly 90 measurements (30 per operator, 10 parts × 3 trials).
-    File format: one measurement per line, with tolerance specs in header.
+    Each ``:BEGIN`` / ``:END`` block represents one report in the crossed
+    study. A report can contain any number of named measurement
+    characteristics. Those characteristics are preserved rather than being
+    treated as repeated trials of a single measurement.
 
     Args:
         input_file: Path to raw measurement file.
 
     Returns:
-        Tuple of (measurements_list, tolerance_tuple) where tolerance_tuple is
-        (nominal, upper_tol, lower_tol).
+        One dictionary per raw measurement with ``Report``, ``Characteristic``,
+        ``Measurement``, and the characteristic-specific tolerance values.
 
     Raises:
-        ValueError: If file doesn't contain exactly 90 measurements or
-                    tolerance information is missing.
+        ValueError: If a block is empty, contains invalid measurement data, or
+            the set of characteristics differs between reports.
     """
-    measurements: list[float] = []
-    nominal: float | None = None
-    upper_tol: float | None = None
-    lower_tol: float | None = None
+    records: list[dict[str, object]] = []
+    block_count = 0
+    in_block = False
+    block_records: list[dict[str, object]] = []
+    expected_characteristics: set[str] | None = None
 
     with _open_text_input(input_file) as fh:
         for line in fh:
             line = line.strip()
 
-            # Parse tolerance specs from header lines
-            if line.startswith("NOMINAL") or line.startswith("Nominal"):
-                try:
-                    nominal = float(line.split("\t")[1].strip())
-                except (IndexError, ValueError):
-                    pass
-            elif line.startswith("UPPER_TOL") or line.startswith("Upper Tol"):
-                try:
-                    upper_tol = float(line.split("\t")[1].strip())
-                except (IndexError, ValueError):
-                    pass
-            elif line.startswith("LOWER_TOL") or line.startswith("Lower Tol"):
-                try:
-                    lower_tol = float(line.split("\t")[1].strip())
-                except (IndexError, ValueError):
-                    pass
-            # Skip empty lines and comments
-            elif not line or line.startswith("#") or line.startswith('"'):
+            # Detect BEGIN marker - start of a new block
+            if line.startswith('":BEGIN"'):
+                if in_block:
+                    raise ValueError("Encountered a new :BEGIN marker before closing the prior report.")
+                in_block = True
+                block_records = []
                 continue
-            # Parse measurement values
-            else:
-                try:
-                    value = float(line)
-                    measurements.append(value)
-                except ValueError:
-                    continue
+            # Detect END marker - end of current block
+            elif line.startswith('":END"'):
+                if in_block:
+                    if not block_records:
+                        raise ValueError(
+                            f"Report {block_count + 1} contains no valid measurement rows."
+                        )
+                    characteristics = {
+                        str(record["Characteristic"]) for record in block_records
+                    }
+                    if expected_characteristics is None:
+                        expected_characteristics = characteristics
+                    elif characteristics != expected_characteristics:
+                        missing = sorted(expected_characteristics - characteristics)
+                        unexpected = sorted(characteristics - expected_characteristics)
+                        raise ValueError(
+                            f"Report {block_count + 1} has a different set of characteristics. "
+                            f"Missing: {missing or 'none'}; unexpected: {unexpected or 'none'}."
+                        )
+                    block_count += 1
+                    for record in block_records:
+                        record["Report"] = block_count
+                    records.extend(block_records)
+                    in_block = False
+                continue
+            # Skip metadata lines
+            elif line.startswith('"PATTERN') or line.startswith('"DISPLAY') or line.startswith('"UNIT'):
+                continue
+            # Parse data lines with dimension and tolerance specs (only inside blocks)
+            elif in_block and line.startswith('"'):
+                parts = line.split("\t")
+                if len(parts) >= 5:
+                    try:
+                        characteristic = parts[0].strip('"')
+                        measurement = float(parts[1])
+                        nominal = float(parts[2])
+                        upper_tol = float(parts[3])
+                        lower_tol = float(parts[4])
+                    except (ValueError, IndexError) as exc:
+                        raise ValueError(
+                            f"Invalid measurement or tolerance data in report {block_count + 1}: {line}"
+                        ) from exc
+                    block_records.append(
+                        {
+                            "Characteristic": characteristic,
+                            "Measurement": measurement,
+                            "Nominal": nominal,
+                            "Upper Tol": upper_tol,
+                            "Lower Tol": lower_tol,
+                        }
+                    )
 
-    # Validate tolerance information
-    if nominal is None or upper_tol is None or lower_tol is None:
+    if in_block:
+        raise ValueError("Input ended before the final :END marker.")
+
+    # Validate block count
+    if block_count == 0:
         raise ValueError(
-            "Missing tolerance specifications in input file. "
-            "File must contain NOMINAL, UPPER_TOL, and LOWER_TOL values."
+            "No valid measurement blocks (':BEGIN'/':END') found in input file."
         )
 
-    # Validate measurement count
-    if len(measurements) != 90:
+    if len(records) == 0:
         raise ValueError(
-            f"Expected exactly 90 measurements (30 per operator × 3 operators). "
-            f"Found {len(measurements)} measurements."
+            "No measurement data found in input file blocks."
         )
 
-    return measurements, (float(nominal), float(upper_tol), float(lower_tol))
+    return records
 
 
 def _build_gage_rr_dataframe(
-    measurements: list[float],
-    tolerance: tuple[float, float, float],
+    records: list[dict[str, object]],
+    num_operators: int = 3,
+    trials_per_part: int = 3,
 ) -> pd.DataFrame:
     """Build structured DataFrame for Gage R&R Crossed analysis.
 
-    Automatically assigns operators (30 measurements each) and parts
-    (10 parts × 3 trials per operator).
+    Assigns operators, parts, and trials to complete report blocks. Every
+    characteristic therefore receives an independent, balanced crossed study.
 
     Args:
-        measurements: List of 90 measurement values.
-        tolerance: Tuple of (nominal, upper_tol, lower_tol).
+        records: Parsed measurement records, including a report number.
+        num_operators: Number of operators in the crossed study.
+        trials_per_part: Repeated trials for every Part/Operator combination.
 
     Returns:
-        DataFrame with columns: Part, Operator, Measurement, Nominal, Upper Tol, Lower Tol.
+        DataFrame with Part, Operator, Trial, Characteristic, Measurement, and
+        characteristic-specific tolerance columns.
     """
-    nominal, upper_tol, lower_tol = tolerance
-    tolerance_range = upper_tol - lower_tol
+    if num_operators < 2 or trials_per_part < 2:
+        raise ValueError("Gage R&R requires at least 2 operators and 2 trials per part.")
 
+    report_numbers = sorted({int(record["Report"]) for record in records})
+    total_reports = len(report_numbers)
+    reports_per_operator = num_operators * trials_per_part
+    if total_reports % reports_per_operator != 0:
+        raise ValueError(
+            f"{total_reports} reports cannot form a balanced crossed design with "
+            f"{num_operators} operators and {trials_per_part} trials per part."
+        )
+
+    num_parts = total_reports // reports_per_operator
+    report_positions = {report: position for position, report in enumerate(report_numbers)}
     data: list[dict[str, object]] = []
 
-    # Operator 1: measurements 0-29
-    for i in range(30):
-        part_num = (i // 3) + 1  # 10 parts, 3 trials each
-        trial_num = (i % 3) + 1
-        data.append({
-            "Part": f"Part_{part_num}",
-            "Operator": "Operator_1",
-            "Trial": trial_num,
-            "Measurement": measurements[i],
-            "Nominal": nominal,
-            "Upper Tol": upper_tol,
-            "Lower Tol": lower_tol,
-            "Tolerance": tolerance_range,
-        })
-
-    # Operator 2: measurements 30-59
-    for i in range(30, 60):
-        part_num = ((i - 30) // 3) + 1
-        trial_num = ((i - 30) % 3) + 1
-        data.append({
-            "Part": f"Part_{part_num}",
-            "Operator": "Operator_2",
-            "Trial": trial_num,
-            "Measurement": measurements[i],
-            "Nominal": nominal,
-            "Upper Tol": upper_tol,
-            "Lower Tol": lower_tol,
-            "Tolerance": tolerance_range,
-        })
-
-    # Operator 3: measurements 60-89
-    for i in range(60, 90):
-        part_num = ((i - 60) // 3) + 1
-        trial_num = ((i - 60) % 3) + 1
-        data.append({
-            "Part": f"Part_{part_num}",
-            "Operator": "Operator_3",
-            "Trial": trial_num,
-            "Measurement": measurements[i],
-            "Nominal": nominal,
-            "Upper Tol": upper_tol,
-            "Lower Tol": lower_tol,
-            "Tolerance": tolerance_range,
-        })
+    for record in records:
+        report_position = report_positions[int(record["Report"])]
+        trial_num = report_position % trials_per_part + 1
+        part_operator_position = report_position // trials_per_part
+        operator_num = part_operator_position // num_parts + 1
+        part_num = part_operator_position % num_parts + 1
+        upper_tol = float(record["Upper Tol"])
+        lower_tol = float(record["Lower Tol"])
+        data.append(
+            {
+                "Report": int(record["Report"]),
+                "Part": f"Part_{part_num}",
+                "Operator": f"Operator_{operator_num}",
+                "Trial": trial_num,
+                "Characteristic": record["Characteristic"],
+                "Measurement": float(record["Measurement"]),
+                "Nominal": float(record["Nominal"]),
+                "Upper Tol": upper_tol,
+                "Lower Tol": lower_tol,
+                "Tolerance": upper_tol - lower_tol,
+            }
+        )
 
     return pd.DataFrame(data)
 
@@ -442,15 +469,20 @@ def _build_gage_rr_dataframe(
 def transform_gage_rr_data(
     input_file: _InputSource,
     output_file: Path | None = None,
+    num_operators: int = 3,
+    trials_per_part: int = 3,
 ) -> pd.DataFrame:
     """Convert raw Gage R&R Crossed data into structured TSV format.
 
-    Parses 90 measurements with automatic operator assignment (30 per operator)
-    and tolerance extraction. Generates structured DataFrame for ANOVA analysis.
+    Parses complete raw reports and preserves each measurement characteristic as
+    an independent Gage R&R study. The standard 90-report study maps to 3
+    operators, 10 parts, and 3 trials per part.
 
     Args:
         input_file: Path to raw measurement file with tolerance specs.
         output_file: Where to write resulting TSV, or ``None`` to skip.
+        num_operators: Number of operators in report order.
+        trials_per_part: Repeated trials per Part/Operator combination.
 
     Returns:
         Structured DataFrame with columns: Part, Operator, Trial, Measurement,
@@ -460,14 +492,16 @@ def transform_gage_rr_data(
         ValueError: If input file doesn't contain exactly 90 measurements or
                     tolerance information is missing.
     """
-    measurements, tolerance = _parse_gage_rr_raw_data(input_file)
-    df = _build_gage_rr_dataframe(measurements, tolerance)
+    records = _parse_gage_rr_raw_data(input_file)
+    df = _build_gage_rr_dataframe(records, num_operators, trials_per_part)
 
     if output_file is not None:
         df.to_csv(output_file, sep="\t", index=False)
-        print(f"Success! Processed {len(measurements)} Gage R&R measurements.")
-        print(f"Structure: 10 parts × 3 trials × 3 operators = 90 measurements")
-        print(f"Tolerance range: {tolerance[1] - tolerance[2]:.8f}")
+        n_p = df['Part'].nunique()
+        n_o = df['Operator'].nunique()
+        n_t = df['Trial'].nunique()
+        print(f"Success! Processed {df['Report'].nunique()} reports and {df['Characteristic'].nunique()} characteristics.")
+        print(f"Structure: {n_p} parts x {n_t} trials x {n_o} operators")
         print(f"Data saved to '{output_file}'")
 
     return df

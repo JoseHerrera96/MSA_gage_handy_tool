@@ -15,8 +15,11 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from gage_tracer.data_parser import transform_raw_data, transform_gage_rr_data
-from gage_tracer.calculations import calculate_type1_metrics, calculate_gage_rr_crossed
-from gage_tracer.visualization import create_dashboard, create_gage_rr_dashboard
+from gage_tracer.calculations import (
+    calculate_gage_rr_by_characteristic,
+    calculate_type1_metrics,
+)
+from gage_tracer.visualization import create_dashboard, create_gage_rr_dashboard, create_gage_rr_html_dashboard
 from gage_tracer.paired_ttest import (
     parse_paired_measurements,
     calculate_paired_ttest_metrics,
@@ -344,6 +347,18 @@ def _render_type1_page() -> None:
     st.divider()
 
     with st.container():
+        st.markdown("#### Export data")
+        data_tsv = df.to_csv(sep="\t", index=False).encode("utf-8")
+        st.download_button(
+            label="Download gage data.txt",
+            data=data_tsv,
+            file_name="gage data.txt",
+            mime="text/tab-separated-values",
+        )
+
+    st.divider()
+
+    with st.container():
         st.markdown("#### Export dashboard")
         html = create_dashboard(df, summary, output_path=None)
         st.download_button(
@@ -417,6 +432,18 @@ def _render_paired_page() -> None:
     st.divider()
 
     with st.container():
+        st.markdown("#### Export data")
+        data_tsv = paired_df.to_csv(sep="\t", index=False).encode("utf-8")
+        st.download_button(
+            label="Download paired data.txt",
+            data=data_tsv,
+            file_name="paired data.txt",
+            mime="text/tab-separated-values",
+        )
+
+    st.divider()
+
+    with st.container():
         st.markdown("#### Export dashboard")
         html = create_paired_ttest_dashboard(paired_df, metrics, output_path=None)
         st.download_button(
@@ -431,7 +458,12 @@ def _render_gage_rr_page() -> None:
     st.header("Gage R&R (Crossed) ANOVA Analysis")
     with st.container():
         st.markdown("#### Step 1 — Upload raw Gage R&R data")
-        st.info("Upload a raw data text file with 90 measurements (30 per operator, 10 parts × 3 trials). File must contain NOMINAL, UPPER_TOL, and LOWER_TOL specifications.")
+        st.info("Each report block can contain multiple named characteristics. A separate Gage R&R report is calculated for every characteristic.")
+        config_left, config_right = st.columns(2)
+        with config_left:
+            num_operators = int(st.number_input("Operators", min_value=2, value=3, step=1))
+        with config_right:
+            trials_per_part = int(st.number_input("Trials per part", min_value=2, value=3, step=1))
         uploaded = st.file_uploader("Upload GAGE RR DATA.txt", type=["txt"], key="grr_raw")
 
     st.divider()
@@ -442,13 +474,13 @@ def _render_gage_rr_page() -> None:
     try:
         with st.spinner("Processing Gage R&R Crossed data..."):
             buffer = _uploaded_to_textio(uploaded)
-            df = transform_gage_rr_data(buffer, output_file=None)
-
-            # Extract tolerance from first row
-            tolerance = df["Tolerance"].iloc[0]
-
-            # Calculate Gage R&R metrics
-            results = calculate_gage_rr_crossed(df, tolerance)
+            df = transform_gage_rr_data(
+                buffer,
+                output_file=None,
+                num_operators=num_operators,
+                trials_per_part=trials_per_part,
+            )
+            all_results = calculate_gage_rr_by_characteristic(df)
 
     except ValueError as exc:
         st.error("Invalid data format for Gage R&R analysis.")
@@ -458,6 +490,14 @@ def _render_gage_rr_page() -> None:
         st.error("Unable to process the Gage R&R data file.")
         st.warning(str(exc))
         return
+
+    characteristic = st.selectbox(
+        "Characteristic report",
+        options=list(all_results),
+    )
+    results = all_results[characteristic]
+    characteristic_df = df[df["Characteristic"] == characteristic]
+    st.subheader(f"Report: {characteristic}")
 
     # Industrial traffic light verdict
     grr_pct = results["total_grr_pct"]
@@ -512,7 +552,7 @@ def _render_gage_rr_page() -> None:
 
     with st.container():
         st.markdown("#### 6-Panel Dashboard")
-        fig = create_gage_rr_dashboard(df, results)
+        fig = create_gage_rr_dashboard(characteristic_df, results)
         st.pyplot(fig)
 
     st.divider()
@@ -529,6 +569,30 @@ def _render_gage_rr_page() -> None:
     with st.container():
         st.markdown("#### Data Preview")
         st.dataframe(df, use_container_width=True)
+
+    st.divider()
+
+    with st.container():
+        st.markdown("#### Export data")
+        data_tsv = df.to_csv(sep="\t", index=False).encode("utf-8")
+        st.download_button(
+            label="Download gage rr data.txt",
+            data=data_tsv,
+            file_name="gage rr data.txt",
+            mime="text/tab-separated-values",
+        )
+
+    st.divider()
+
+    with st.container():
+        st.markdown("#### Export dashboard")
+        html = create_gage_rr_html_dashboard(characteristic_df, results, output_path=None)
+        st.download_button(
+            label="Download Gage R&R Dashboard HTML",
+            data=html,
+            file_name=f"Gage_RR_{characteristic}_Dashboard.html",
+            mime="text/html",
+        )
 
 
 def main() -> None:
