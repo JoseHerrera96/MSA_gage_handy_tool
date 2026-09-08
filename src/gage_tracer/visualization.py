@@ -8,13 +8,21 @@ from __future__ import annotations
 
 import math
 from io import BytesIO
+from html import escape
 from pathlib import Path
 from typing import Any
 
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
 import numpy as np
 import pandas as pd
+
+from .study_config import (
+  GRR_MINIMUM_NDC,
+  TYPE1_CAPABILITY_THRESHOLD,
+  classify_gage_rr,
+)
 
 matplotlib.use("Agg")
 
@@ -233,8 +241,8 @@ def _build_summary_rows(chart_images: list[dict[str, Any]]) -> str:
     rows = ""
     for i, d in enumerate(chart_images):
         st_cls = "status-accept" if d["status"] == "ACCEPT" else "status-reject"
-        cg_cls = "kpi-good" if d["cg"] >= 1.33 else "kpi-bad"
-        cgk_cls = "kpi-good" if d["cgk"] >= 1.33 else "kpi-bad"
+        cg_cls = "kpi-good" if d["cg"] >= TYPE1_CAPABILITY_THRESHOLD else "kpi-bad"
+        cgk_cls = "kpi-good" if d["cgk"] >= TYPE1_CAPABILITY_THRESHOLD else "kpi-bad"
         vr = f"{d['var_repeat']:.1f}" if pd.notna(d["var_repeat"]) else "—"
         rows += (
             f'<tr class="summary-row" data-idx="{i}">\n'
@@ -574,5 +582,504 @@ def create_dashboard(
     if output_path is not None:
         output_path.write_text(html, encoding="utf-8")
         print(f"Dashboard created: {output_path}")
+
+    return html
+
+
+# ---------------------------------------------------------------------------
+# Gage R&R Crossed Dashboard (6-Panel Minitab Standard)
+# ---------------------------------------------------------------------------
+
+# Control chart constants for n=3 (subgroup size)
+_D2 = 1.693  # Constant for R chart
+_D3 = 0.0    # Lower control limit factor for R chart
+_D4 = 2.574  # Upper control limit factor for R chart
+_A2 = 1.023  # Constant for Xbar chart
+
+
+def create_gage_rr_dashboard(
+    df: pd.DataFrame,
+    results_dict: dict[str, object],
+    part_col: str = "Part",
+    op_col: str = "Operator",
+    resp_col: str = "Measurement",
+  dark_mode: bool = False,
+) -> plt.Figure:
+    """Generate 6-panel Gage R&R Crossed dashboard following Minitab standards.
+
+    Creates a 2x3 grid of charts:
+    1. Components of Variation (bar chart)
+    2. Measurement by Part (scatter + line)
+    3. R Chart by Operator (control chart)
+    4. Measurement by Operator (boxplots)
+    5. Xbar Chart by Operator (control chart)
+    6. Part * Operator Interaction (line plot)
+
+    Args:
+        df: DataFrame with Part, Operator, Measurement columns.
+        results_dict: Results dictionary from calculate_gage_rr_crossed.
+        part_col: Name of part column (default "Part").
+        op_col: Name of operator column (default "Operator").
+        resp_col: Name of measurement column (default "Measurement").
+        dark_mode: Use the dark Streamlit preview palette when ``True``.
+
+    Returns:
+        matplotlib Figure object with 6 panels.
+    """
+    # Color palette (consistent with project)
+    CLR_DATA = "#D8DEE9" if dark_mode else "#3A3A44"       # Primary data
+    CLR_REF = "#1A8754"        # Reference/good
+    CLR_LIMIT = "#FF6135"      # Control limits/attention
+    CLR_MEAN = "#FF420D"       # Mean/accent
+    CLR_GRID = "#334155" if dark_mode else "#E0E0E4"      # Grid
+    CLR_LABEL = "#CBD5E1" if dark_mode else "#5A5A66"      # Labels
+    CLR_TITLE = "#F8FAFC" if dark_mode else "#010101"      # Titles
+    CLR_SPINE = "#475569" if dark_mode else "#D1D1D6"      # Borders
+    CLR_CARD = "#0E1826" if dark_mode else "#FFFFFF"       # Background
+    CLR_FIGURE = "#0B1220" if dark_mode else "#FEFEFE"
+
+    # Extract variance components for chart 1
+    var_df = results_dict["variance_components"]
+    gage_eval_df = results_dict["gage_evaluation"]
+
+    # Create 2x3 figure
+    figure_height = 14 if dark_mode else 12
+    fig, axes = plt.subplots(2, 3, figsize=(18, figure_height))
+    fig.patch.set_facecolor(CLR_FIGURE)
+    if "Characteristic" in df.columns and df["Characteristic"].nunique() == 1:
+      fig.suptitle(
+        f"Gage R&R (Crossed) - Characteristic: {df['Characteristic'].iloc[0]}",
+        fontsize=14,
+        fontweight="bold",
+        color=CLR_TITLE,
+      )
+
+    # Panel 1: Components of Variation (Bar Chart)
+    ax1 = axes[0, 0]
+    sources = ["Total Gage R&R", "Repeatability", "Reproducibility", "Operator", "Part-to-Part"]
+    contribution_values = []
+    study_var_values = []
+    tolerance_values = []
+    for source in sources:
+        row = var_df[var_df["Source"] == source].iloc[0]
+        contribution_values.append(float(row["%Contribution"]))
+        study_var_values.append(float(row["%StudyVar"]))
+        tolerance_values.append(float(row["%Tolerance"]))
+
+    x_positions = np.arange(len(sources))
+    bar_width = 0.25
+    ax1.bar(
+      x_positions - bar_width,
+      contribution_values,
+      bar_width,
+      color=CLR_LIMIT,
+      alpha=0.85,
+      label="% Contribution",
+    )
+    ax1.bar(
+      x_positions,
+      study_var_values,
+      bar_width,
+      color=CLR_DATA,
+      alpha=0.85,
+      label="% Study Var",
+    )
+    ax1.bar(
+      x_positions + bar_width,
+      tolerance_values,
+      bar_width,
+      color=CLR_REF,
+      alpha=0.85,
+      label="% Tolerance",
+    )
+    ax1.set_xticks(x_positions)
+    ax1.set_xticklabels(sources, rotation=45, ha="right")
+    ax1.set_ylabel("Percent", fontsize=9, color=CLR_LABEL)
+    ax1.set_title("Components of Variation", fontsize=10, fontweight="bold", color=CLR_TITLE)
+    ax1.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax1.grid(True, alpha=0.3, color=CLR_GRID, axis="y")
+    ax1.legend(fontsize=7, loc="upper left", facecolor=CLR_CARD, edgecolor=CLR_SPINE)
+    for spine in ax1.spines.values():
+        spine.set_color(CLR_SPINE)
+
+    # Panel 2: Measurement by Part (all trials grouped by physical part)
+    ax2 = axes[0, 1]
+    parts = sorted(df[part_col].unique())
+    part_positions = np.arange(len(parts))
+    for operator in sorted(df[op_col].unique()):
+      operator_means = []
+      for part in parts:
+        values = df[(df[op_col] == operator) & (df[part_col] == part)][resp_col]
+        operator_means.append(float(values.mean()))
+      ax2.plot(
+        part_positions,
+        operator_means,
+        "-o",
+        markersize=4,
+        linewidth=1.2,
+        alpha=0.8,
+        label=operator,
+      )
+
+    ax2.set_xlabel("Part", fontsize=9, color=CLR_LABEL)
+    ax2.set_xticks(part_positions)
+    ax2.set_xticklabels(parts, rotation=45, ha="right")
+    ax2.set_ylabel(resp_col, fontsize=9, color=CLR_LABEL)
+    ax2.set_title("Measurement by Part", fontsize=10, fontweight="bold", color=CLR_TITLE)
+    ax2.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax2.grid(True, alpha=0.3, color=CLR_GRID)
+    ax2.legend(fontsize=7, loc="best", facecolor=CLR_CARD, edgecolor=CLR_SPINE, labelcolor=CLR_LABEL)
+    for spine in ax2.spines.values():
+        spine.set_color(CLR_SPINE)
+
+    # Panel 3: R Chart by Operator (one subgroup range per part)
+    ax3 = axes[0, 2]
+    operator_labels = sorted(df[op_col].unique())
+    r_values_by_operator: dict[str, list[float]] = {}
+
+    for operator in operator_labels:
+      op_data = df[df[op_col] == operator]
+      part_ranges = []
+      for part in parts:
+        part_trials = op_data[op_data[part_col] == part][resp_col].values
+        part_ranges.append(float(part_trials.max() - part_trials.min()))
+      r_values_by_operator[operator] = part_ranges
+
+    all_ranges = [value for values in r_values_by_operator.values() for value in values]
+    r_bar = float(np.mean(all_ranges)) if all_ranges else 0.0
+    ucl_r = _D4 * r_bar
+    lcl_r = _D3 * r_bar
+    for operator in operator_labels:
+      ax3.plot(
+        part_positions,
+        r_values_by_operator[operator],
+        "-o",
+        markersize=3,
+        linewidth=1,
+        label=operator,
+      )
+    ax3.axhline(y=ucl_r, color=CLR_LIMIT, ls="--", lw=1.5, label=f"UCL ({ucl_r:.4f})")
+    ax3.axhline(y=r_bar, color=CLR_REF, ls="-", lw=1.5, label=f"R-bar ({r_bar:.4f})")
+    if lcl_r > 0:
+      ax3.axhline(y=lcl_r, color=CLR_LIMIT, ls="--", lw=1.5, label=f"LCL ({lcl_r:.4f})")
+
+    ax3.set_xticks(part_positions)
+    ax3.set_xticklabels(parts, rotation=45, ha="right", fontsize=8)
+    ax3.set_ylabel("Range (R)", fontsize=9, color=CLR_LABEL)
+    ax3.set_title("R Chart by Operator", fontsize=10, fontweight="bold", color=CLR_TITLE)
+    ax3.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax3.grid(True, alpha=0.3, color=CLR_GRID, axis="y")
+    ax3.legend(fontsize=7, loc="best", facecolor=CLR_CARD, edgecolor=CLR_SPINE, labelcolor=CLR_LABEL)
+    for spine in ax3.spines.values():
+        spine.set_color(CLR_SPINE)
+
+    # Panel 4: Measurement by Operator (Boxplots)
+    ax4 = axes[1, 0]
+    box_data = [df[df[op_col] == op][resp_col].values for op in sorted(df[op_col].unique())]
+    bp = ax4.boxplot(
+      box_data,
+      labels=sorted(df[op_col].unique()),
+      patch_artist=True,
+      flierprops={
+        "marker": "o",
+        "markerfacecolor": CLR_LIMIT,
+        "markeredgecolor": CLR_LIMIT,
+        "markersize": 5,
+        "alpha": 0.95,
+      },
+      whiskerprops={"color": CLR_DATA, "linewidth": 1.2},
+      capprops={"color": CLR_DATA, "linewidth": 1.2},
+    )
+
+    for patch in bp["boxes"]:
+        patch.set_facecolor(CLR_DATA)
+        patch.set_alpha(0.6)
+        patch.set_edgecolor(CLR_SPINE)
+
+    for median in bp["medians"]:
+        median.set_color(CLR_MEAN)
+        median.set_linewidth(2)
+
+    # Minitab overlays individual observations on this panel. Highlight only
+    # observations outside the standard 1.5*IQR whisker limits.
+    for position, operator in enumerate(operator_labels, start=1):
+      values = df[df[op_col] == operator][resp_col].to_numpy(dtype=float)
+      if values.size == 0:
+        continue
+      quartile_1, quartile_3 = np.percentile(values, [25, 75])
+      iqr = quartile_3 - quartile_1
+      lower_fence = quartile_1 - 1.5 * iqr
+      upper_fence = quartile_3 + 1.5 * iqr
+      outlier_mask = (values < lower_fence) | (values > upper_fence)
+      jitter = np.linspace(-0.12, 0.12, values.size)
+      ax4.scatter(
+        np.full(values.size, position) + jitter,
+        values,
+        s=16,
+        color=CLR_DATA,
+        alpha=0.7,
+        zorder=3,
+      )
+      if outlier_mask.any():
+        ax4.scatter(
+          np.full(outlier_mask.sum(), position) + jitter[outlier_mask],
+          values[outlier_mask],
+          s=34,
+          color=CLR_LIMIT,
+          edgecolors=CLR_LIMIT,
+          zorder=4,
+          label="Outlier" if position == 1 else "_nolegend_",
+        )
+
+    ax4.set_ylabel(resp_col, fontsize=9, color=CLR_LABEL)
+    ax4.set_title("Measurement by Operator", fontsize=10, fontweight="bold", color=CLR_TITLE)
+    ax4.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax4.grid(True, alpha=0.3, color=CLR_GRID, axis="y")
+    for spine in ax4.spines.values():
+        spine.set_color(CLR_SPINE)
+
+    # Panel 5: Xbar Chart by Operator (one subgroup mean per part)
+    ax5 = axes[1, 1]
+    xbar_values_by_operator: dict[str, list[float]] = {}
+    for operator in operator_labels:
+      op_data = df[df[op_col] == operator]
+      part_means = []
+      for part in parts:
+        part_trials = op_data[op_data[part_col] == part][resp_col].values
+        part_means.append(float(np.mean(part_trials)))
+      xbar_values_by_operator[operator] = part_means
+
+    all_xbars = [value for values in xbar_values_by_operator.values() for value in values]
+    x_double_bar = float(np.mean(all_xbars)) if all_xbars else 0.0
+    ucl_x = x_double_bar + _A2 * r_bar
+    lcl_x = x_double_bar - _A2 * r_bar
+    for operator in operator_labels:
+        ax5.plot(
+            part_positions,
+            xbar_values_by_operator[operator],
+            "-o",
+            markersize=3,
+            linewidth=1,
+            label=operator,
+        )
+    ax5.axhline(y=ucl_x, color=CLR_LIMIT, ls="--", lw=1.5, label=f"UCL ({ucl_x:.4f})")
+    ax5.axhline(y=x_double_bar, color=CLR_REF, ls="-", lw=1.5, label=f"X-bar ({x_double_bar:.4f})")
+    ax5.axhline(y=lcl_x, color=CLR_LIMIT, ls="--", lw=1.5, label=f"LCL ({lcl_x:.4f})")
+
+    ax5.set_xticks(part_positions)
+    ax5.set_xticklabels(parts, rotation=45, ha="right", fontsize=8)
+    ax5.set_ylabel("X-bar", fontsize=9, color=CLR_LABEL)
+    ax5.set_title("Xbar Chart by Operator", fontsize=10, fontweight="bold", color=CLR_TITLE)
+    ax5.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax5.grid(True, alpha=0.3, color=CLR_GRID, axis="y")
+    ax5.legend(fontsize=7, loc="best", facecolor=CLR_CARD, edgecolor=CLR_SPINE, labelcolor=CLR_LABEL)
+    for spine in ax5.spines.values():
+        spine.set_color(CLR_SPINE)
+
+    # Panel 6: Part * Operator Interaction
+    ax6 = axes[1, 2]
+    for operator in operator_labels:
+        op_data = df[df[op_col] == operator]
+        part_means = []
+        for part in parts:
+            part_trials = op_data[op_data[part_col] == part][resp_col].values
+            part_means.append(np.mean(part_trials))
+        ax6.plot(part_positions, part_means, "-o", markersize=4, linewidth=1.5, alpha=0.8, label=operator)
+
+    ax6.set_xlabel("Part", fontsize=9, color=CLR_LABEL)
+    ax6.set_xticks(part_positions)
+    ax6.set_xticklabels(parts, rotation=45, ha="right")
+    ax6.set_ylabel("Mean Measurement", fontsize=9, color=CLR_LABEL)
+    ax6.set_title("Part * Operator Interaction", fontsize=10, fontweight="bold", color=CLR_TITLE)
+    ax6.tick_params(labelsize=8, colors=CLR_LABEL)
+    ax6.grid(True, alpha=0.3, color=CLR_GRID)
+    ax6.legend(fontsize=7, loc="best", facecolor=CLR_CARD, edgecolor=CLR_SPINE, labelcolor=CLR_LABEL)
+    for spine in ax6.spines.values():
+        spine.set_color(CLR_SPINE)
+
+    for axis in axes.flat:
+        axis.set_facecolor(CLR_CARD)
+        axis.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
+        axis.ticklabel_format(axis="y", style="plain", useOffset=False)
+
+    fig.tight_layout(pad=2.0, rect=(0, 0, 1, 0.96))
+    return fig
+
+
+def create_gage_rr_html_dashboard(
+    df: pd.DataFrame,
+    results_dict: dict[str, Any],
+    output_path: Path | None = None,
+) -> str:
+    """Generate a self-contained HTML dashboard for Gage R&R Crossed results.
+
+    Embeds the 6-panel chart as a Base64 image and displays KPI cards, ANOVA table,
+    variance components, and gage evaluation tables.
+
+    """
+    import base64
+    import time
+    from io import BytesIO
+
+    # 1. Render 6-panel figure to Base64
+    fig = create_gage_rr_dashboard(df, results_dict)
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight", facecolor="#FEFEFE")
+    plt.close(fig)
+    buf.seek(0)
+    img_b64 = base64.b64encode(buf.read()).decode("utf-8")
+
+    # 2. Extract key metrics
+    grr_pct = float(results_dict["total_grr_pct"])
+    ndc = int(results_dict["ndc"])
+    sv_total = float(results_dict["study_variation"])
+    n_parts = int(results_dict["n_parts"])
+    n_ops = int(results_dict["n_operators"])
+    n_trials = int(results_dict["n_trials"])
+    characteristic = (
+      str(df["Characteristic"].iloc[0])
+      if "Characteristic" in df.columns and df["Characteristic"].nunique() == 1
+      else "All characteristics"
+    )
+    characteristic_html = escape(characteristic)
+
+    # Industrial verdict
+    verdict = classify_gage_rr(grr_pct, ndc)
+    if verdict == "PASS":
+        verdict_color = "var(--color-status-accept)"
+        verdict_msg = "Excellent - Measurement system is acceptable"
+    elif verdict == "MARGINAL":
+        verdict_color = "var(--color-brand-primary)"
+        verdict_msg = "Marginal - Measurement system may be acceptable depending on application"
+    else:
+        verdict = "FAIL"
+        verdict_color = "var(--color-status-reject)"
+        verdict_msg = "Unacceptable - Measurement system needs improvement"
+
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    anova_interaction_html = results_dict["anova_table_with_interaction"].to_html(
+      index=False, classes="stats-table"
+    )
+    anova_html = results_dict["anova_table"].to_html(index=False, classes="stats-table")
+    var_html = results_dict["variance_components"].to_html(index=False, classes="stats-table")
+    eval_html = results_dict["gage_evaluation"].to_html(index=False, classes="stats-table")
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gage R&amp;R (Crossed) — {characteristic_html}</title>
+<style>
+{_CSS_TEMPLATE}
+.stats-table {{
+  width:100%; border-collapse:collapse; font-size:12px; margin-bottom:16px;
+  background:#FFFFFF; border-radius:6px; overflow:hidden; box-shadow:var(--shadow-card);
+}}
+.stats-table th {{
+  background:var(--color-bg-elevated); color:var(--color-text-secondary);
+  font-size:10px; text-transform:uppercase; letter-spacing:1px; font-weight:600;
+  padding:10px 14px; text-align:left; border-bottom:1px solid var(--color-border-default);
+}}
+.stats-table td {{
+  padding:8px 14px; border-bottom:1px solid var(--color-border-subtle);
+  color:var(--color-text-primary); font-family:var(--font-mono);
+}}
+.stats-table tr:nth-child(even) td {{
+  background:var(--color-bg-elevated);
+}}
+.section-card {{
+  background:var(--color-bg-surface); border-radius:var(--radius-md);
+  padding:var(--space-md) var(--space-lg); margin-bottom:var(--space-lg);
+  box-shadow:var(--shadow-card); border:1px solid var(--color-border-subtle);
+}}
+.chart-section {{
+  background:var(--color-bg-elevated); border-radius:var(--radius-md);
+  padding:var(--space-md) var(--space-lg); margin-bottom:var(--space-lg);
+  border:1px solid var(--color-border-subtle);
+}}
+.section-title {{
+  font-size:14px; font-weight:700; color:var(--color-text-primary);
+  margin-bottom:var(--space-md); text-transform:uppercase; letter-spacing:0.5px;
+}}
+.chart-container img {{
+  width:100%; height:auto; border-radius:var(--radius-sm); display:block;
+}}
+</style>
+</head>
+<body>
+
+<div class="dash-header">
+  <h1 class="dash-title"><em>Gage R&amp;R (Crossed)</em> ANOVA Dashboard — {characteristic_html}</h1>
+  <span class="dash-date">{timestamp}</span>
+</div>
+
+<div class="kpi-row">
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-brand-primary);">
+    <div class="kpi-label">Characteristic</div>
+    <div class="kpi-value" style="font-size:20px;">{characteristic_html}</div>
+    <div class="kpi-sub">Independent Gage R&amp;R report</div>
+  </div>
+  <div class="kpi-card kpi-primary" style="border-left:4px solid {verdict_color};">
+    <div class="kpi-label">Verdict</div>
+    <div class="kpi-value" style="color:{verdict_color}; font-size:32px;">{verdict}</div>
+    <div class="kpi-sub">{verdict_msg}</div>
+  </div>
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-brand-primary);">
+    <div class="kpi-label">% Total Gage R&amp;R</div>
+    <div class="kpi-value">{grr_pct:.2f}%</div>
+    <div class="kpi-sub">Target &lt; 10%</div>
+  </div>
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-status-accept);">
+    <div class="kpi-label">NDC</div>
+    <div class="kpi-value">{ndc}</div>
+    <div class="kpi-sub">Target &ge; {GRR_MINIMUM_NDC}</div>
+  </div>
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-text-secondary);">
+    <div class="kpi-label">Study Variation</div>
+    <div class="kpi-value" style="font-size:20px;">{sv_total:.6f}</div>
+    <div class="kpi-sub">6 &times; SD</div>
+  </div>
+  <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-brand-accent);">
+    <div class="kpi-label">Design</div>
+    <div class="kpi-value" style="font-size:18px;">{n_parts}P &times; {n_ops}O &times; {n_trials}T</div>
+    <div class="kpi-sub">{len(df)} measurements</div>
+  </div>
+</div>
+
+<div class="chart-section">
+  <div class="section-title">Gage R&amp;R Dashboard</div>
+  <div class="chart-container">
+    <img src="data:image/png;base64,{img_b64}" alt="Gage R&amp;R Dashboard">
+  </div>
+</div>
+
+<div class="section-card">
+  <div class="section-title">Two-Way ANOVA Table With Interaction</div>
+  {anova_interaction_html}
+</div>
+
+<div class="section-card">
+  <div class="section-title">Final ANOVA Table</div>
+  {anova_html}
+</div>
+
+<div class="section-card">
+  <div class="section-title">Variance Components</div>
+  {var_html}
+</div>
+
+<div class="section-card">
+  <div class="section-title">Gage Evaluation</div>
+  {eval_html}
+</div>
+
+</body>
+</html>"""
+
+    if output_path is not None:
+        output_path.write_text(html, encoding="utf-8")
+        print(f"Gage R&R Dashboard HTML created: {output_path}")
 
     return html

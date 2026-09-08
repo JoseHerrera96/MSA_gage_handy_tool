@@ -27,14 +27,25 @@ desktop.ini
 *.qpf
 *.mwx
 
-# ── Generated data files ──
-gage data.txt
-Gage_Study_Summary.txt
-RAW DATA.txt
-Gage_Study_Summary_dashboard.html
-PAIRED DATA SYSTEM A.txt
-PAIRED DATA SYSTEM B.txt
-paired_data.txt
-Paired_T_Test_Summary.txt
-paired_ttest/**/*.txt
-gage_type1/**/*.txt
+# ── Generated workflow outputs ──
+gage_type1/data/*
+gage_type1/reports/*
+gage_type1/dashboards/*
+paired_ttest/data/*
+paired_ttest/reports/*
+paired_ttest/dashboards/*
+gage_rr/data/*
+gage_rr/reports/*
+gage_rr/dashboards/*
+!gage_type1/data/.gitkeep
+!gage_type1/reports/.gitkeep
+!gage_type1/dashboards/.gitkeep
+!paired_ttest/data/.gitkeep
+!paired_ttest/reports/.gitkeep
+!paired_ttest/dashboards/.gitkeep
+!gage_rr/data/.gitkeep
+!gage_rr/reports/.gitkeep
+!gage_rr/dashboards/.gitkeep
+
+# ── Local exploratory scripts ──
+scratch/
