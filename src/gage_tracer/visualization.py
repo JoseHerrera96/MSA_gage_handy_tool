@@ -776,9 +776,10 @@ def create_gage_rr_dashboard(
     # Panel 4: Measurement by Operator (Boxplots)
     ax4 = axes[1, 0]
     box_data = [df[df[op_col] == op][resp_col].values for op in sorted(df[op_col].unique())]
+    positions = np.arange(1, len(box_data) + 1)
     bp = ax4.boxplot(
       box_data,
-      labels=sorted(df[op_col].unique()),
+      positions=positions,
       patch_artist=True,
       flierprops={
         "marker": "o",
@@ -790,6 +791,8 @@ def create_gage_rr_dashboard(
       whiskerprops={"color": CLR_DATA, "linewidth": 1.2},
       capprops={"color": CLR_DATA, "linewidth": 1.2},
     )
+    ax4.set_xticks(positions)
+    ax4.set_xticklabels(sorted(df[op_col].unique()))
 
     for patch in bp["boxes"]:
         patch.set_facecolor(CLR_DATA)
