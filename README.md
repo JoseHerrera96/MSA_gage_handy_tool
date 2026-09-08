@@ -112,7 +112,7 @@ python cli/Paired_T_Test_tool.py
 Place the raw report file in `gage_rr/raw/GAGE RR DATA.txt` and run:
 
 ```bash
-python cli/Gage_RR_tool.py --operators 3 --trials 3
+python cli/Gage_RR_tool.py
 ```
 
 The input must form a balanced design:

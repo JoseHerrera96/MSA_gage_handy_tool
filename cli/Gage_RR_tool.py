@@ -16,10 +16,10 @@ It produces shared normalized data plus one report set per characteristic:
 
 from __future__ import annotations
 
-import argparse
 import shutil
 import sys
 import time
+import argparse
 from pathlib import Path
 from typing import Any
 
@@ -126,7 +126,7 @@ def _file_stem(characteristic: str) -> str:
     return "".join(char if char.isalnum() or char in "-_" else "_" for char in characteristic)
 
 
-def run(num_operators: int = 3, trials_per_part: int = 3) -> None:
+def run(input_format: str = "auto") -> None:
     """Run the full multireport Gage R&R pipeline.
 
     Steps:
@@ -171,12 +171,11 @@ def run(num_operators: int = 3, trials_per_part: int = 3) -> None:
             df = transform_gage_rr_data(
                 raw_path,
                 GRR_DATA_FILE,
-                num_operators=num_operators,
-                trials_per_part=trials_per_part,
+                input_format=input_format,
             )
         except ValueError as e:
             print(f"ERROR: {e}")
-            print("Please ensure the report count forms a balanced crossed design for the selected operators and trials.")
+            print("The input must contain exactly 90 report blocks: 10 parts x 3 operators x 3 trials.")
             return
     else:
         print(f"\n[1/3] Raw data file not found ({RAW_FILE.name} or {ROOT_RAW_FILE.name});")
@@ -219,8 +218,12 @@ def run(num_operators: int = 3, trials_per_part: int = 3) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate multireport crossed Gage R&R analyses.")
-    parser.add_argument("--operators", type=int, default=3, help="Number of operators in report order.")
-    parser.add_argument("--trials", type=int, default=3, help="Trials per Part/Operator combination.")
+    parser = argparse.ArgumentParser(description="Generate the fixed 90-block crossed Gage R&R analysis.")
+    parser.add_argument(
+        "--input-format",
+        choices=("auto", "blocks", "continuous"),
+        default="auto",
+        help="Input layout: BEGIN/END blocks, continuous repeated rows, or auto-detect.",
+    )
     args = parser.parse_args()
-    run(num_operators=args.operators, trials_per_part=args.trials)
+    run(input_format=args.input_format)

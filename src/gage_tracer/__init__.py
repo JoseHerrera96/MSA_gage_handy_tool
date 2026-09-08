@@ -33,6 +33,11 @@ from .paired_ttest import (
     calculate_paired_ttest_metrics,
     create_paired_ttest_dashboard,
 )
+from .study_config import (
+    GRR_DESIGN,
+    TYPE1_CAPABILITY_THRESHOLD,
+    classify_gage_rr,
+)
 
 __all__ = [
     "transform_raw_data",
@@ -47,4 +52,7 @@ __all__ = [
     "export_paired_data",
     "calculate_paired_ttest_metrics",
     "create_paired_ttest_dashboard",
+    "GRR_DESIGN",
+    "TYPE1_CAPABILITY_THRESHOLD",
+    "classify_gage_rr",
 ]

@@ -18,6 +18,12 @@ from matplotlib.ticker import ScalarFormatter
 import numpy as np
 import pandas as pd
 
+from .study_config import (
+  GRR_MINIMUM_NDC,
+  TYPE1_CAPABILITY_THRESHOLD,
+  classify_gage_rr,
+)
+
 matplotlib.use("Agg")
 
 
@@ -235,8 +241,8 @@ def _build_summary_rows(chart_images: list[dict[str, Any]]) -> str:
     rows = ""
     for i, d in enumerate(chart_images):
         st_cls = "status-accept" if d["status"] == "ACCEPT" else "status-reject"
-        cg_cls = "kpi-good" if d["cg"] >= 1.33 else "kpi-bad"
-        cgk_cls = "kpi-good" if d["cgk"] >= 1.33 else "kpi-bad"
+        cg_cls = "kpi-good" if d["cg"] >= TYPE1_CAPABILITY_THRESHOLD else "kpi-bad"
+        cgk_cls = "kpi-good" if d["cgk"] >= TYPE1_CAPABILITY_THRESHOLD else "kpi-bad"
         vr = f"{d['var_repeat']:.1f}" if pd.notna(d["var_repeat"]) else "—"
         rows += (
             f'<tr class="summary-row" data-idx="{i}">\n'
@@ -938,12 +944,11 @@ def create_gage_rr_html_dashboard(
     characteristic_html = escape(characteristic)
 
     # Industrial verdict
-    if grr_pct < 10 and ndc >= 5:
-        verdict = "PASS"
+    verdict = classify_gage_rr(grr_pct, ndc)
+    if verdict == "PASS":
         verdict_color = "var(--color-status-accept)"
         verdict_msg = "Excellent - Measurement system is acceptable"
-    elif 10 <= grr_pct <= 30 and ndc >= 5:
-        verdict = "MARGINAL"
+    elif verdict == "MARGINAL":
         verdict_color = "var(--color-brand-primary)"
         verdict_msg = "Marginal - Measurement system may be acceptable depending on application"
     else:
@@ -953,6 +958,9 @@ def create_gage_rr_html_dashboard(
 
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
 
+    anova_interaction_html = results_dict["anova_table_with_interaction"].to_html(
+      index=False, classes="stats-table"
+    )
     anova_html = results_dict["anova_table"].to_html(index=False, classes="stats-table")
     var_html = results_dict["variance_components"].to_html(index=False, classes="stats-table")
     eval_html = results_dict["gage_evaluation"].to_html(index=False, classes="stats-table")
@@ -1026,7 +1034,7 @@ def create_gage_rr_html_dashboard(
   <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-status-accept);">
     <div class="kpi-label">NDC</div>
     <div class="kpi-value">{ndc}</div>
-    <div class="kpi-sub">Target &ge; 5</div>
+    <div class="kpi-sub">Target &ge; {GRR_MINIMUM_NDC}</div>
   </div>
   <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-text-secondary);">
     <div class="kpi-label">Study Variation</div>
@@ -1048,7 +1056,12 @@ def create_gage_rr_html_dashboard(
 </div>
 
 <div class="section-card">
-  <div class="section-title">ANOVA Table</div>
+  <div class="section-title">Two-Way ANOVA Table With Interaction</div>
+  {anova_interaction_html}
+</div>
+
+<div class="section-card">
+  <div class="section-title">Final ANOVA Table</div>
   {anova_html}
 </div>
 

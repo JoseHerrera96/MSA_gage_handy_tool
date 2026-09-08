@@ -8,11 +8,14 @@ downstream analysis.
 
 from __future__ import annotations
 
+import re
 from io import StringIO, TextIOBase
 from pathlib import Path
 from typing import IO, TextIO, Union
 
 import pandas as pd
+
+from .study_config import GRR_DESIGN
 
 _InputSource = Union[Path, str, TextIO, IO[bytes]]
 
@@ -65,15 +68,10 @@ def _parse_raw_data(
         - *repetitions*: list of dicts, one per cycle, keyed by dimension.
         - *specs*: dict mapping each dimension to its nominal/tolerance info.
     """
-    # Stores all complete measurement cycles (list of dicts, each dict = one cycle's measurements)
     all_repetitions: list[dict[str, float]] = []
-    # Tracks measurements for the currently active cycle being parsed
     current_repetition: dict[str, float] = {}
-    # Stores permanent tolerance/nominal specs for every detected dimension
     dimension_specs: dict[str, dict[str, float]] = {}
-    # Tracks the first dimension seen in the current cycle (used for auto-cycle detection)
     first_dimension_in_cycle: str | None = None
-    # Flag to track if the input file uses explicit :BEGIN/:END cycle markers
     has_explicit_markers = False
 
     with _open_text_input(input_file) as fh:
@@ -90,48 +88,36 @@ def _parse_raw_data(
                     all_repetitions.append(current_repetition)
                     current_repetition = {}
                     first_dimension_in_cycle = None
-            # Skip known metadata lines; treat everything else as a
-            # dimension row (supports any dimension name like gp_height,
-            # coplanarity, C5, etc.).
             elif line.startswith('"'):
-                # Check if it's a metadata line by looking at the content inside quotes
-                stripped_line = line[1:].split('"')[0].strip() if line.startswith('"') else line
+                stripped_line = line[1:].split('"')[0].strip()
                 if stripped_line.startswith(':') or stripped_line in ('PATTERN', 'DISPLAY', 'UNIT') or stripped_line.startswith(('PATTERN:', 'DISPLAY:', 'UNIT:')):
                     continue
-                
+
                 parts = line.split("\t")
-                # Handle both formats: with specs (5+ parts) and without (2 parts)
                 if len(parts) >= 2:
                     raw_dim_name = parts[0].strip('"')
                     dim_name = raw_dim_name.replace("_OUT1", "")
                     try:
-                        # Skip if measurement is empty
                         if not parts[1].strip():
                             continue
                         measurement = float(parts[1])
 
-                        # Detect cycle boundary: if this dimension already
-                        # exists in current repetition, start a new cycle
-                        # (works for files without explicit markers)
                         if dim_name in current_repetition:
                             if current_repetition:
                                 all_repetitions.append(current_repetition)
                             current_repetition = {}
                             first_dimension_in_cycle = dim_name
 
-                        # Track the first dimension we see in each cycle
                         if first_dimension_in_cycle is None:
                             first_dimension_in_cycle = dim_name
 
                         current_repetition[dim_name] = measurement
 
-                        # Only update specs if we have full spec data (5+ parts)
                         if len(parts) >= 5:
                             try:
                                 nominal = float(parts[2])
                                 upper_tol = float(parts[3])
                                 lower_tol = float(parts[4])
-
                                 if dim_name not in dimension_specs:
                                     dimension_specs[dim_name] = {
                                         "nominal": nominal,
@@ -140,7 +126,6 @@ def _parse_raw_data(
                                     }
                             except (ValueError, IndexError):
                                 pass
-                        # For files without specs, initialize default specs
                         elif dim_name not in dimension_specs:
                             dimension_specs[dim_name] = {
                                 "nominal": "",
@@ -150,13 +135,10 @@ def _parse_raw_data(
                     except ValueError:
                         continue
 
-    # Flush the last repetition if the file didn't end with :END
     if current_repetition:
         all_repetitions.append(current_repetition)
 
     return all_repetitions, dimension_specs
-
-
 def _compute_dimension_statistics(
     df: pd.DataFrame,
     specs: dict[str, dict[str, float]],
@@ -298,117 +280,177 @@ def transform_raw_data(
 # Gage R&R Crossed Parser
 # ---------------------------------------------------------------------------
 
-def _parse_gage_rr_raw_data(
-    input_file: _InputSource,
-) -> list[dict[str, object]]:
-    """Parse raw Gage R&R Crossed measurement file (Type 1 format).
+def _parse_gage_rr_row(line: str) -> dict[str, object] | None:
+    """Parse one GRR measurement row, ignoring headers and footers."""
+    parts = line.split("\t")
+    if len(parts) < 5:
+        return None
+    try:
+        characteristic = parts[0].strip().strip('"')
+        if not characteristic:
+            return None
+        return {
+            "Characteristic": characteristic,
+            "Measurement": float(parts[1]),
+            "Nominal": float(parts[2]),
+            "Upper Tol": float(parts[3]),
+            "Lower Tol": float(parts[4]),
+        }
+    except (ValueError, IndexError):
+        return None
 
-    Each ``:BEGIN`` / ``:END`` block represents one report in the crossed
-    study. A report can contain any number of named measurement
-    characteristics. Those characteristics are preserved rather than being
-    treated as repeated trials of a single measurement.
 
-    Args:
-        input_file: Path to raw measurement file.
+def _is_gage_rr_marker(line: str, marker: str) -> bool:
+    normalized = line.strip().strip('"')
+    return normalized.startswith(marker) or normalized.startswith(marker.lstrip(":"))
 
-    Returns:
-        One dictionary per raw measurement with ``Report``, ``Characteristic``,
-        ``Measurement``, and the characteristic-specific tolerance values.
 
-    Raises:
-        ValueError: If a block is empty, contains invalid measurement data, or
-            the set of characteristics differs between reports.
-    """
+def _validate_gage_rr_block(
+    block_records: list[dict[str, object]],
+    report_number: int,
+    expected_characteristics: tuple[str, ...] | None,
+) -> tuple[tuple[str, ...], list[dict[str, object]]]:
+    if not block_records:
+        raise ValueError(f"Report {report_number} contains no valid measurement rows.")
+    characteristics = tuple(str(record["Characteristic"]) for record in block_records)
+    if len(set(characteristics)) != len(characteristics):
+        raise ValueError(f"Report {report_number} contains a duplicated characteristic.")
+    if expected_characteristics is None:
+        expected_characteristics = characteristics
+    elif set(characteristics) != set(expected_characteristics):
+        missing = sorted(set(expected_characteristics) - set(characteristics))
+        unexpected = sorted(set(characteristics) - set(expected_characteristics))
+        raise ValueError(
+            f"Report {report_number} has a different set of characteristics. "
+            f"Missing: {missing or 'none'}; unexpected: {unexpected or 'none'}."
+        )
+    for record in block_records:
+        record["Report"] = report_number
+    return expected_characteristics, block_records
+
+
+def _parse_gage_rr_blocks(lines: list[str]) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
-    block_count = 0
-    in_block = False
     block_records: list[dict[str, object]] = []
-    expected_characteristics: set[str] | None = None
-
-    with _open_text_input(input_file) as fh:
-        for line in fh:
-            line = line.strip()
-
-            # Detect BEGIN marker - start of a new block
-            if line.startswith('":BEGIN"'):
-                if in_block:
-                    raise ValueError("Encountered a new :BEGIN marker before closing the prior report.")
-                in_block = True
-                block_records = []
+    expected_characteristics: tuple[str, ...] | None = None
+    in_block = False
+    block_count = 0
+    for line in lines:
+        if _is_gage_rr_marker(line, ":BEGIN"):
+            if in_block:
+                raise ValueError("Encountered a new :BEGIN marker before closing the prior report.")
+            in_block = True
+            block_records = []
+        elif _is_gage_rr_marker(line, ":END"):
+            if not in_block:
                 continue
-            # Detect END marker - end of current block
-            elif line.startswith('":END"'):
-                if in_block:
-                    if not block_records:
-                        raise ValueError(
-                            f"Report {block_count + 1} contains no valid measurement rows."
-                        )
-                    characteristics = {
-                        str(record["Characteristic"]) for record in block_records
-                    }
-                    if expected_characteristics is None:
-                        expected_characteristics = characteristics
-                    elif characteristics != expected_characteristics:
-                        missing = sorted(expected_characteristics - characteristics)
-                        unexpected = sorted(characteristics - expected_characteristics)
-                        raise ValueError(
-                            f"Report {block_count + 1} has a different set of characteristics. "
-                            f"Missing: {missing or 'none'}; unexpected: {unexpected or 'none'}."
-                        )
-                    block_count += 1
-                    for record in block_records:
-                        record["Report"] = block_count
-                    records.extend(block_records)
-                    in_block = False
+            if block_count == 0 and len(block_records) == GRR_DESIGN.report_blocks:
+                records.extend(_normalize_single_dimension_measurements(block_records))
+                block_count = GRR_DESIGN.report_blocks
+                in_block = False
                 continue
-            # Skip metadata lines
-            elif line.startswith('"PATTERN') or line.startswith('"DISPLAY') or line.startswith('"UNIT'):
-                continue
-            # Parse data lines with dimension and tolerance specs (only inside blocks)
-            elif in_block and line.startswith('"'):
-                parts = line.split("\t")
-                if len(parts) >= 5:
-                    try:
-                        characteristic = parts[0].strip('"')
-                        measurement = float(parts[1])
-                        nominal = float(parts[2])
-                        upper_tol = float(parts[3])
-                        lower_tol = float(parts[4])
-                    except (ValueError, IndexError) as exc:
-                        raise ValueError(
-                            f"Invalid measurement or tolerance data in report {block_count + 1}: {line}"
-                        ) from exc
-                    block_records.append(
-                        {
-                            "Characteristic": characteristic,
-                            "Measurement": measurement,
-                            "Nominal": nominal,
-                            "Upper Tol": upper_tol,
-                            "Lower Tol": lower_tol,
-                        }
-                    )
-
+            expected_characteristics, validated = _validate_gage_rr_block(
+                block_records, block_count + 1, expected_characteristics
+            )
+            block_count += 1
+            records.extend(validated)
+            in_block = False
+        elif in_block:
+            row = _parse_gage_rr_row(line)
+            if row is not None:
+                block_records.append(row)
     if in_block:
         raise ValueError("Input ended before the final :END marker.")
-
-    # Validate block count
     if block_count == 0:
-        raise ValueError(
-            "No valid measurement blocks (':BEGIN'/':END') found in input file."
-        )
-
-    if len(records) == 0:
-        raise ValueError(
-            "No measurement data found in input file blocks."
-        )
-
+        raise ValueError("No valid BEGIN/END measurement blocks found in input file.")
     return records
+
+
+def _normalize_single_dimension_measurements(
+    records: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    """Treat one 90-row block as 90 reports for a single dimension.
+
+    OGP exports may encode the part in the tag, for example ``C20_A001``.
+    In this layout the repeated ``_A###`` suffix identifies the part, while
+    the shared prefix identifies the characteristic measured in every report.
+    """
+    tags = [str(record["Characteristic"]) for record in records]
+    match = re.fullmatch(r"(.+)_A\d+", tags[0])
+    if match is None or not all(
+        (current_match := re.fullmatch(r"(.+)_A\d+", tag)) is not None
+        and current_match.group(1) == match.group(1)
+        for tag in tags
+    ):
+        raise ValueError(
+            "The single-block 90-measurement format requires tags such as "
+            "C20_A001, C20_A002, etc., sharing one dimension prefix."
+        )
+
+    dimension = match.group(1)
+    for report_number, record in enumerate(records, start=1):
+        record["Report"] = report_number
+        record["Characteristic"] = dimension
+        record["PartTag"] = tags[report_number - 1].rsplit("_", 1)[1]
+    return records
+
+
+def _parse_gage_rr_continuous(lines: list[str]) -> list[dict[str, object]]:
+    rows = [row for line in lines if (row := _parse_gage_rr_row(line)) is not None]
+    if not rows:
+        raise ValueError("No valid measurement rows found in continuous input.")
+    if len(rows) == GRR_DESIGN.report_blocks:
+        tags = [str(row["Characteristic"]) for row in rows]
+        if all(re.fullmatch(r"(.+)_A\d+", tag) for tag in tags):
+            return _normalize_single_dimension_measurements(rows)
+
+    blocks: list[list[dict[str, object]]] = []
+    current: list[dict[str, object]] = []
+    seen: set[str] = set()
+    first_characteristic: str | None = None
+    for row in rows:
+        characteristic = str(row["Characteristic"])
+        if first_characteristic is None:
+            first_characteristic = characteristic
+        elif characteristic == first_characteristic and current:
+            blocks.append(current)
+            current = []
+            seen = set()
+        if characteristic in seen:
+            raise ValueError("Continuous data contains a duplicated characteristic before the next cycle.")
+        current.append(row)
+        seen.add(characteristic)
+    if current:
+        blocks.append(current)
+    records: list[dict[str, object]] = []
+    expected_characteristics: tuple[str, ...] | None = None
+    for report_number, block in enumerate(blocks, start=1):
+        expected_characteristics, validated = _validate_gage_rr_block(
+            block, report_number, expected_characteristics
+        )
+        records.extend(validated)
+    return records
+
+
+def _parse_gage_rr_raw_data(
+    input_file: _InputSource,
+    input_format: str = "auto",
+) -> list[dict[str, object]]:
+    """Parse GRR data as explicit blocks or consecutive repeated rows."""
+    if input_format not in {"auto", "blocks", "continuous"}:
+        raise ValueError("input_format must be 'auto', 'blocks', or 'continuous'.")
+    lines = [line.strip() for line in _open_text_input(input_file)]
+    has_markers = any(
+        _is_gage_rr_marker(line, ":BEGIN") or _is_gage_rr_marker(line, ":END")
+        for line in lines
+    )
+    if input_format == "auto":
+        input_format = "blocks" if has_markers else "continuous"
+    return _parse_gage_rr_blocks(lines) if input_format == "blocks" else _parse_gage_rr_continuous(lines)
 
 
 def _build_gage_rr_dataframe(
     records: list[dict[str, object]],
-    num_operators: int = 3,
-    trials_per_part: int = 3,
 ) -> pd.DataFrame:
     """Build structured DataFrame for Gage R&R Crossed analysis.
 
@@ -417,35 +459,45 @@ def _build_gage_rr_dataframe(
 
     Args:
         records: Parsed measurement records, including a report number.
-        num_operators: Number of operators in the crossed study.
-        trials_per_part: Repeated trials for every Part/Operator combination.
 
     Returns:
         DataFrame with Part, Operator, Trial, Characteristic, Measurement, and
         characteristic-specific tolerance columns.
     """
-    if num_operators < 2 or trials_per_part < 2:
-        raise ValueError("Gage R&R requires at least 2 operators and 2 trials per part.")
-
     report_numbers = sorted({int(record["Report"]) for record in records})
     total_reports = len(report_numbers)
-    reports_per_operator = num_operators * trials_per_part
-    if total_reports % reports_per_operator != 0:
+    if total_reports != GRR_DESIGN.report_blocks:
         raise ValueError(
-            f"{total_reports} reports cannot form a balanced crossed design with "
-            f"{num_operators} operators and {trials_per_part} trials per part."
+            "Gage R&R requires exactly 90 report blocks: 10 parts x "
+            "3 operators x 3 trials."
         )
 
-    num_parts = total_reports // reports_per_operator
+    num_parts = GRR_DESIGN.parts
     report_positions = {report: position for position, report in enumerate(report_numbers)}
+    part_tags = [str(record["PartTag"]) for record in records if "PartTag" in record]
+    has_part_tags = len(part_tags) == len(records)
+    if has_part_tags:
+        unique_part_tags = list(dict.fromkeys(part_tags))
+        if len(unique_part_tags) != GRR_DESIGN.parts:
+            raise ValueError(
+                f"Part-tagged Gage R&R data must contain exactly {GRR_DESIGN.parts} unique parts."
+            )
+        part_positions = {tag: position for position, tag in enumerate(unique_part_tags)}
+
     data: list[dict[str, object]] = []
 
     for record in records:
         report_position = report_positions[int(record["Report"])]
-        trial_num = report_position % trials_per_part + 1
-        part_operator_position = report_position // trials_per_part
-        operator_num = part_operator_position // num_parts + 1
-        part_num = part_operator_position % num_parts + 1
+        if has_part_tags:
+            part_num = part_positions[str(record["PartTag"])] + 1
+            round_number = report_position // num_parts
+            trial_num = round_number % GRR_DESIGN.trials_per_part + 1
+            operator_num = round_number // GRR_DESIGN.trials_per_part + 1
+        else:
+            trial_num = report_position % GRR_DESIGN.trials_per_part + 1
+            part_operator_position = report_position // GRR_DESIGN.trials_per_part
+            operator_num = part_operator_position // num_parts + 1
+            part_num = part_operator_position % num_parts + 1
         upper_tol = float(record["Upper Tol"])
         lower_tol = float(record["Lower Tol"])
         data.append(
@@ -469,8 +521,7 @@ def _build_gage_rr_dataframe(
 def transform_gage_rr_data(
     input_file: _InputSource,
     output_file: Path | None = None,
-    num_operators: int = 3,
-    trials_per_part: int = 3,
+    input_format: str = "auto",
 ) -> pd.DataFrame:
     """Convert raw Gage R&R Crossed data into structured TSV format.
 
@@ -481,9 +532,8 @@ def transform_gage_rr_data(
     Args:
         input_file: Path to raw measurement file with tolerance specs.
         output_file: Where to write resulting TSV, or ``None`` to skip.
-        num_operators: Number of operators in report order.
-        trials_per_part: Repeated trials per Part/Operator combination.
-
+        input_format: ``auto``, ``blocks`` for BEGIN/END reports, or
+            ``continuous`` for repeated measurements without separators.
     Returns:
         Structured DataFrame with columns: Part, Operator, Trial, Measurement,
         Nominal, Upper Tol, Lower Tol, Tolerance.
@@ -492,8 +542,8 @@ def transform_gage_rr_data(
         ValueError: If input file doesn't contain exactly 90 measurements or
                     tolerance information is missing.
     """
-    records = _parse_gage_rr_raw_data(input_file)
-    df = _build_gage_rr_dataframe(records, num_operators, trials_per_part)
+    records = _parse_gage_rr_raw_data(input_file, input_format=input_format)
+    df = _build_gage_rr_dataframe(records)
 
     if output_file is not None:
         df.to_csv(output_file, sep="\t", index=False)

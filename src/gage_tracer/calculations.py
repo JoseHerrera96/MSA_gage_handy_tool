@@ -15,6 +15,8 @@ import math
 import numpy as np
 import pandas as pd
 
+from .study_config import TYPE1_CAPABILITY_THRESHOLD
+
 
 def compute_bias_significance(
     bias: float,
@@ -143,7 +145,11 @@ def calculate_type1_metrics(
         "Lower Tol": lower_tol,
         "Ref + 0.10*Tol": reference + 0.1 * tolerance,
         "Ref - 0.10*Tol": reference - 0.1 * tolerance,
-        "Status": "ACCEPT" if cg >= 1.33 and cgk >= 1.33 else "REJECT",
+        "Status": (
+            "ACCEPT"
+            if cg >= TYPE1_CAPABILITY_THRESHOLD and cgk >= TYPE1_CAPABILITY_THRESHOLD
+            else "REJECT"
+        ),
     }
 
 
@@ -240,14 +246,37 @@ def calculate_gage_rr_crossed(
     ms_interaction = ss_interaction / df_interaction if df_interaction > 0 else 0
     ms_error = ss_error / df_error if df_error > 0 else 0
 
-    # F-statistics and p-values
-    f_part = ms_part / ms_error if ms_error > 0 else 0
-    f_operator = ms_operator / ms_error if ms_error > 0 else 0
+    # For the unpooled ANOVA, Part and Operator are tested against the
+    # Part*Operator mean square; the interaction is tested against Error.
+    f_part = ms_part / ms_interaction if ms_interaction > 0 else 0
+    f_operator = ms_operator / ms_interaction if ms_interaction > 0 else 0
     f_interaction = ms_interaction / ms_error if ms_error > 0 else 0
 
-    p_part = float(sp_stats.f.sf(f_part, df_part, df_error)) if ms_error > 0 else 1.0
-    p_operator = float(sp_stats.f.sf(f_operator, df_operator, df_error)) if ms_error > 0 else 1.0
-    p_interaction = float(sp_stats.f.sf(f_interaction, df_interaction, df_error)) if ms_error > 0 else 1.0
+    p_part = (
+        float(sp_stats.f.sf(f_part, df_part, df_interaction))
+        if ms_interaction > 0
+        else 1.0
+    )
+    p_operator = (
+        float(sp_stats.f.sf(f_operator, df_operator, df_interaction))
+        if ms_interaction > 0
+        else 1.0
+    )
+    p_interaction = (
+        float(sp_stats.f.sf(f_interaction, df_interaction, df_error))
+        if ms_error > 0
+        else 1.0
+    )
+
+    anova_with_interaction_df = pd.DataFrame(
+        [
+            {"Source": "Part", "DF": df_part, "SS": ss_part, "MS": ms_part, "F": f_part, "P": p_part},
+            {"Source": "Operator", "DF": df_operator, "SS": ss_operator, "MS": ms_operator, "F": f_operator, "P": p_operator},
+            {"Source": "Part * Operator", "DF": df_interaction, "SS": ss_interaction, "MS": ms_interaction, "F": f_interaction, "P": p_interaction},
+            {"Source": "Error", "DF": df_error, "SS": ss_error, "MS": ms_error, "F": "", "P": ""},
+            {"Source": "Total", "DF": df_total, "SS": ss_total, "MS": "", "F": "", "P": ""},
+        ]
+    )
 
     # Minitab pooling rule: pool interaction if p-value > alpha_pool
     pooled_interaction = p_interaction > alpha_pool
@@ -348,47 +377,19 @@ def calculate_gage_rr_crossed(
 
     # Build ANOVA table DataFrame
     anova_data = [
-        {
-            "Source": "Part",
-            "DF": df_part,
-            "SS": ss_part,
-            "MS": ms_part,
-            "F": f_part,
-            "P": p_part,
-        },
-        {
-            "Source": "Operator",
-            "DF": df_operator,
-            "SS": ss_operator,
-            "MS": ms_operator,
-            "F": f_operator,
-            "P": p_operator,
-        },
-        {
-            "Source": "Part * Operator",
-            "DF": df_interaction,
-            "SS": ss_interaction,
-            "MS": ms_interaction,
-            "F": f_interaction,
-            "P": p_interaction,
-        },
-        {
-            "Source": "Error",
-            "DF": df_error_final,
-            "SS": ss_error if not pooled_interaction else ss_error + ss_interaction,
-            "MS": ms_error_final,
-            "F": "",
-            "P": "",
-        },
-        {
-            "Source": "Total",
-            "DF": df_total,
-            "SS": ss_total,
-            "MS": "",
-            "F": "",
-            "P": "",
-        },
+        {"Source": "Part", "DF": df_part, "SS": ss_part, "MS": ms_part, "F": f_part, "P": p_part},
+        {"Source": "Operator", "DF": df_operator, "SS": ss_operator, "MS": ms_operator, "F": f_operator, "P": p_operator},
     ]
+    if not pooled_interaction:
+        anova_data.append(
+            {"Source": "Part * Operator", "DF": df_interaction, "SS": ss_interaction, "MS": ms_interaction, "F": f_interaction, "P": p_interaction}
+        )
+    anova_data.extend(
+        [
+            {"Source": "Error", "DF": df_error_final, "SS": ss_error if not pooled_interaction else ss_error + ss_interaction, "MS": ms_error_final, "F": "", "P": ""},
+            {"Source": "Total", "DF": df_total, "SS": ss_total, "MS": "", "F": "", "P": ""},
+        ]
+    )
     anova_df = pd.DataFrame(anova_data)
 
     # Build variance components DataFrame
@@ -487,6 +488,7 @@ def calculate_gage_rr_crossed(
 
     return {
         "anova_table": anova_df,
+        "anova_table_with_interaction": anova_with_interaction_df,
         "variance_components": variance_df,
         "gage_evaluation": gage_eval_df,
         "ndc": ndc,

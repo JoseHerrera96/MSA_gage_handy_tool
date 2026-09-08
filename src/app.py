@@ -17,13 +17,24 @@ if str(SRC_DIR) not in sys.path:
 from gage_tracer.data_parser import transform_raw_data, transform_gage_rr_data
 from gage_tracer.calculations import (
     calculate_gage_rr_by_characteristic,
-    calculate_type1_metrics,
 )
 from gage_tracer.visualization import create_dashboard, create_gage_rr_dashboard, create_gage_rr_html_dashboard
 from gage_tracer.paired_ttest import (
     parse_paired_measurements,
     calculate_paired_ttest_metrics,
     create_paired_ttest_dashboard,
+)
+from gage_tracer.study_config import (
+    GRR_DESIGN,
+    GRR_MINIMUM_NDC,
+    TYPE1_CAPABILITY_THRESHOLD,
+    classify_gage_rr,
+)
+from gage_tracer.presentation import (
+    build_type1_summary,
+    format_type1_dataframe,
+    metric_status,
+    paired_summary_dataframe,
 )
 
 
@@ -35,83 +46,6 @@ def _uploaded_to_textio(uploaded_file: Any) -> TextIO:
     return io.StringIO(raw)
 
 
-def _metric_status(value: float, threshold: float) -> str:
-    return "PASS" if value >= threshold else "FAIL"
-
-
-def _format_type1_dataframe(summary_df: pd.DataFrame) -> pd.DataFrame:
-    display_df = summary_df[
-        ["Gage Item", "Reference", "Mean", "StdDev", "Bias", "T", "PValue", "Cg", "Cgk"]
-    ].copy()
-    display_df["PValue"] = display_df["PValue"].map("{:.6f}".format)
-    display_df["Bias"] = display_df["Bias"].map("{:+.6f}".format)
-    return display_df.set_index("Gage Item")
-
-
-def _paired_summary_dataframe(metrics: dict[str, Any]) -> pd.DataFrame:
-    return (
-        pd.DataFrame(
-            [
-                {
-                    "Metric": "N",
-                    "System A": int(metrics["N"]),
-                    "System B": int(metrics["N"]),
-                    "Difference": "",
-                },
-                {
-                    "Metric": "Mean",
-                    "System A": f"{metrics['Mean_A']:.6f}",
-                    "System B": f"{metrics['Mean_B']:.6f}",
-                    "Difference": f"{metrics['Mean_D']:.6f}",
-                },
-                {
-                    "Metric": "StDev",
-                    "System A": f"{metrics['StDev_A']:.6f}",
-                    "System B": f"{metrics['StDev_B']:.6f}",
-                    "Difference": f"{metrics['StDev_D']:.6f}",
-                },
-                {
-                    "Metric": "SE Mean",
-                    "System A": f"{metrics['SE_A']:.6f}",
-                    "System B": f"{metrics['SE_B']:.6f}",
-                    "Difference": f"{metrics['SE_D']:.6f}",
-                },
-                {
-                    "Metric": "95% CI Lower",
-                    "System A": "",
-                    "System B": "",
-                    "Difference": f"{metrics['CI_Lower']:.6f}",
-                },
-                {
-                    "Metric": "95% CI Upper",
-                    "System A": "",
-                    "System B": "",
-                    "Difference": f"{metrics['CI_Upper']:.6f}",
-                },
-                {
-                    "Metric": "T-Value",
-                    "System A": "",
-                    "System B": "",
-                    "Difference": f"{metrics['T_Value']:.6f}",
-                },
-                {
-                    "Metric": "Degrees of Freedom",
-                    "System A": "",
-                    "System B": "",
-                    "Difference": int(metrics["DF"]),
-                },
-                {
-                    "Metric": "P-Value",
-                    "System A": "",
-                    "System B": "",
-                    "Difference": f"{metrics['P_Value']:.6f}",
-                },
-            ]
-        )
-        .set_index("Metric")
-    )
-
-
 def _apply_theme() -> None:
     st.set_page_config(
         page_title="Data Tracer MSA",
@@ -119,22 +53,41 @@ def _apply_theme() -> None:
         initial_sidebar_state="expanded",
     )
 
-    st.markdown(
-        """
+    theme_base = st.get_option("theme.base") or "dark"
+
+    theme_css = """
         <style>
         :root {
-            color-scheme: dark;
+            color-scheme: __COLOR_SCHEME__;
+            --app-bg: #151515;
+            --app-surface: #222222;
+            --app-surface-raised: #2B2B2B;
+            --app-border: #555555;
+            --app-text: #F5F7FA;
+            --app-text-muted: #C7C7C7;
+            --app-accent: #FF8C00;
+            --app-card-border: rgba(255, 255, 255, 0.08);
+            --app-card-bg: rgba(255, 255, 255, 0.03);
+            --app-shadow: rgba(0, 0, 0, 0.25);
+        }
+        __LIGHT_THEME_MEDIA__
+        [data-baseweb="base"] {
+            color-scheme: inherit;
         }
         .stApp {
-            background-color: #070B12;
-            color: #F5F7FA;
+            background-color: var(--app-bg) !important;
+            color: var(--app-text) !important;
         }
-        .css-1d391kg, .css-1v3fvcr, .css-18ni7ap {
-            background-color: #0D1622 !important;
-            color: #F5F7FA !important;
+        header[data-testid="stHeader"] {
+            background-color: var(--app-surface) !important;
+        }
+        section[data-testid="stSidebar"],
+        section[data-testid="stSidebar"] > div {
+            background-color: var(--app-surface) !important;
+            color: var(--app-text) !important;
         }
         .stSidebar {
-            background-color: #09111E;
+            background-color: var(--app-surface) !important;
         }
         section[data-testid="stSidebar"] .sidebar-title {
             font-size: 1.7rem !important;
@@ -142,18 +95,18 @@ def _apply_theme() -> None:
             margin-bottom: 0.35rem;
             text-transform: uppercase;
             letter-spacing: 0.04em;
-            color: #FFFFFF !important;
+            color: var(--app-text) !important;
         }
         section[data-testid="stSidebar"] .sidebar-subtitle {
             font-size: 1.05rem !important;
             font-weight: 600 !important;
             margin-bottom: 0.9rem;
-            color: #D8E2FF !important;
+            color: var(--app-text-muted) !important;
         }
         section[data-testid="stSidebar"] .stButton>button {
-            background-color: #FF4B4B !important;
+            background-color: var(--app-accent) !important;
             color: #FFFFFF !important;
-            border: 1px solid rgba(255, 75, 75, 0.8) !important;
+            border: 1px solid var(--app-accent) !important;
             border-radius: 1rem !important;
             padding: 0.9rem 1rem !important;
             width: 100% !important;
@@ -162,59 +115,149 @@ def _apply_theme() -> None:
             margin-bottom: 0.6rem !important;
         }
         section[data-testid="stSidebar"] .stButton>button:hover {
-            background-color: #e94444 !important;
+            background-color: #E07B00 !important;
         }
         .stButton>button, .stDownloadButton>button {
-            background-color: #FF4B4B !important;
+            background-color: var(--app-accent) !important;
             color: #FFFFFF !important;
-            border: 1px solid #FF4B4B !important;
+            border: 1px solid var(--app-accent) !important;
         }
         .stButton>button:hover, .stDownloadButton>button:hover {
-            background-color: #e84444 !important;
-            border-color: #e84444 !important;
+            background-color: #E07B00 !important;
+            border-color: #E07B00 !important;
         }
         .stFileUploader {
-            border: 1px solid #1F2A3A;
+            border: 1px solid var(--app-border);
             border-radius: 1rem;
-            background-color: #0E1826;
+            background-color: var(--app-surface-raised);
             padding: 1rem;
         }
-        .stTextInput>div>div>input {
-            background-color: #0E1826;
-            color: #F5F7FA;
-            border-color: #1F2A3A;
+        [data-testid="stFileUploader"],
+        [data-testid="stFileUploaderDropzone"],
+        [data-testid="stFileUploaderDropzone"] > div {
+            background-color: var(--app-surface-raised) !important;
+            border-color: var(--app-border) !important;
+        }
+        [data-testid="stFileUploader"] label,
+        [data-testid="stFileUploader"] small,
+        [data-testid="stFileUploader"] span,
+        [data-testid="stFileUploader"] p,
+        [data-testid="stFileUploader"] button {
+            color: var(--app-text) !important;
+        }
+        [data-testid="stFileUploader"] button {
+            background-color: var(--app-accent) !important;
+            border: 1px solid var(--app-accent) !important;
+            color: #FFFFFF !important;
+        }
+        [data-testid="stFileUploader"] button:hover {
+            background-color: #E07B00 !important;
+            border-color: #E07B00 !important;
+        }
+        .stTextInput input,
+        .stNumberInput input,
+        [data-baseweb="select"] > div {
+            background-color: var(--app-surface-raised) !important;
+            color: var(--app-text) !important;
+            border-color: var(--app-border) !important;
         }
         .stInfo, .stWarning, .stError {
             border-radius: 1rem !important;
         }
-        .stDataFrame table {
-            background-color: #0F1726 !important;
+        [data-testid="stAlert"] {
+            background-color: var(--app-surface-raised) !important;
+            border: 1px solid var(--app-border) !important;
+            border-left-color: var(--app-border) !important;
+            color: var(--app-text) !important;
         }
-        .stMarkdown, .stExpander {
-            color: #F5F7FA;
+        [data-testid="stAlert"] > div,
+        [data-testid="stAlert"] > div > div,
+        [data-testid="stAlert"] [data-baseweb="notification"] {
+            background-color: var(--app-surface-raised) !important;
+        }
+        [data-testid="stAlert"] p,
+        [data-testid="stAlert"] span {
+            color: var(--app-text) !important;
+        }
+        [data-testid="stDataFrame"],
+        [data-testid="stDataFrame"] > div,
+        .stDataFrame table {
+            background-color: var(--app-surface) !important;
+        }
+        [data-testid="stDataFrame"] th,
+        [data-testid="stDataFrame"] td {
+            color: var(--app-text) !important;
+        }
+        .stMarkdown, .stExpander, [data-testid="stMarkdownContainer"] {
+            color: var(--app-text) !important;
         }
         .report-card {
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--app-card-border);
             border-radius: 1rem;
             padding: 1rem;
-            background: rgba(255, 255, 255, 0.03);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+            background: var(--app-card-bg);
+            box-shadow: 0 10px 30px var(--app-shadow);
             margin-bottom: 1rem;
         }
         .data-card {
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--app-card-border);
             border-radius: 1rem;
             padding: 1rem;
-            background: rgba(255, 255, 255, 0.02);
+            background: var(--app-card-bg);
         }
         .section-title {
-            color: #FFFFFF;
+            color: var(--app-text) !important;
         }
         .sidebar-help li {
             margin-bottom: 0.6rem;
         }
         </style>
-        """,
+        """.replace("__COLOR_SCHEME__", "light" if theme_base == "light" else "dark")
+
+    if theme_base == "auto":
+        theme_css = theme_css.replace(
+            "__LIGHT_THEME_MEDIA__",
+            """
+            @media (prefers-color-scheme: light) {
+                :root {
+                    color-scheme: light;
+                    --app-bg: #E6E6E6;
+                    --app-surface: #DCDCDC;
+                    --app-surface-raised: #EEEEEE;
+                    --app-border: #B8B8B8;
+                    --app-text: #000000;
+                    --app-text-muted: #555555;
+                    --app-accent: #FF8C00;
+                    --app-card-border: rgba(23, 33, 43, 0.14);
+                    --app-card-bg: rgba(255, 255, 255, 0.92);
+                    --app-shadow: rgba(23, 33, 43, 0.10);
+                }
+            }
+            """,
+        )
+    elif theme_base == "light":
+        theme_css = theme_css.replace(
+            "__LIGHT_THEME_MEDIA__",
+            """
+            :root {
+                color-scheme: light;
+                --app-bg: #E6E6E6;
+                --app-surface: #DCDCDC;
+                --app-surface-raised: #EEEEEE;
+                --app-border: #B8B8B8;
+                --app-text: #000000;
+                --app-text-muted: #555555;
+                --app-accent: #FF8C00;
+                --app-card-border: rgba(23, 33, 43, 0.14);
+                --app-card-bg: rgba(255, 255, 255, 0.92);
+                --app-shadow: rgba(23, 33, 43, 0.10);
+            }
+            """,
+        )
+    else:
+        theme_css = theme_css.replace("__LIGHT_THEME_MEDIA__", "")
+    st.markdown(
+        theme_css,
         unsafe_allow_html=True,
     )
 
@@ -259,34 +302,6 @@ def _render_sidebar() -> str:
     return st.session_state.selected_study
 
 
-def _build_type1_summary(df: pd.DataFrame) -> list[dict[str, Any]]:
-    skip_cols = {"", " ", "Dimension", "Average", "Max diff", "Nominal", "Upper Tol", "Lower Tol"}
-    summary: list[dict[str, Any]] = []
-    for col in df.columns:
-        if col.strip() not in skip_cols:
-            measurements = pd.to_numeric(df[col], errors="coerce").dropna()
-            if measurements.empty:
-                continue
-
-            spec_row = df[df["Dimension"] == col].iloc[0].copy()
-            nominal = pd.to_numeric(spec_row["Nominal"], errors="coerce")
-            upper_tol = pd.to_numeric(spec_row["Upper Tol"], errors="coerce")
-            lower_tol = pd.to_numeric(spec_row["Lower Tol"], errors="coerce")
-
-            if pd.isna(nominal) or pd.isna(upper_tol) or pd.isna(lower_tol):
-                raise ValueError(
-                    f"Missing or invalid tolerance specs for dimension '{col}'. "
-                    "Please upload a raw data file with nominal and tolerance values."
-                )
-
-            spec_row["Nominal"] = nominal
-            spec_row["Upper Tol"] = upper_tol
-            spec_row["Lower Tol"] = lower_tol
-
-            summary.append(calculate_type1_metrics(col, measurements, spec_row))
-    return summary
-
-
 def _render_type1_page() -> None:
     st.header("Type 1 Gage Study")
     with st.container():
@@ -303,7 +318,7 @@ def _render_type1_page() -> None:
         with st.spinner("Processing Type 1 Gage Study data..."):
             buffer = _uploaded_to_textio(uploaded)
             df = transform_raw_data(buffer, output_file=None)
-            summary = _build_type1_summary(df)
+            summary = build_type1_summary(df)
 
         if not summary:
             st.error("No valid measurement dimensions were found in the uploaded file.")
@@ -315,14 +330,14 @@ def _render_type1_page() -> None:
         return
 
     summary_df = pd.DataFrame(summary)
-    pass_threshold = 1.33
+    pass_threshold = TYPE1_CAPABILITY_THRESHOLD
     mean_cg = summary_df["Cg"].mean()
     mean_cgk = summary_df["Cgk"].mean()
     accepted = summary_df[summary_df["Status"] == "ACCEPT"].shape[0]
     total = summary_df.shape[0]
     pass_rate = f"{accepted}/{total} ({accepted * 100 / total:.0f}%)"
-    cg_status = _metric_status(mean_cg, pass_threshold)
-    cgk_status = _metric_status(mean_cgk, pass_threshold)
+    cg_status = metric_status(mean_cg, pass_threshold)
+    cgk_status = metric_status(mean_cgk, pass_threshold)
 
     with st.container():
         st.markdown("#### Key results")
@@ -333,15 +348,19 @@ def _render_type1_page() -> None:
         metrics_cols[3].metric("Pass rate", pass_rate)
 
     if cg_status == "PASS" and cgk_status == "PASS":
-        st.success("Cg and Cgk both meet the industrial threshold of 1.33.")
+        st.success(
+            f"Cg and Cgk both meet the industrial threshold of {pass_threshold:.2f}."
+        )
     else:
-        st.warning("One or more indices fall below the minimum 1.33 threshold.")
+        st.warning(
+            f"One or more indices fall below the minimum {pass_threshold:.2f} threshold."
+        )
 
     st.divider()
 
     with st.container():
         st.markdown("#### Dimension summary")
-        display_df = _format_type1_dataframe(summary_df)
+        display_df = format_type1_dataframe(summary_df)
         st.dataframe(display_df, use_container_width=True)
 
     st.divider()
@@ -420,7 +439,7 @@ def _render_paired_page() -> None:
 
     with st.container():
         st.markdown("#### Paired T-Test summary")
-        summary_df = _paired_summary_dataframe(metrics)
+        summary_df = paired_summary_dataframe(metrics)
         st.dataframe(summary_df, use_container_width=True)
 
     st.divider()
@@ -459,11 +478,15 @@ def _render_gage_rr_page() -> None:
     with st.container():
         st.markdown("#### Step 1 — Upload raw Gage R&R data")
         st.info("Each report block can contain multiple named characteristics. A separate Gage R&R report is calculated for every characteristic.")
-        config_left, config_right = st.columns(2)
-        with config_left:
-            num_operators = int(st.number_input("Operators", min_value=2, value=3, step=1))
-        with config_right:
-            trials_per_part = int(st.number_input("Trials per part", min_value=2, value=3, step=1))
+        st.info(
+            "Fixed crossed design: "
+            f"{GRR_DESIGN.parts} parts x {GRR_DESIGN.operators} operators x "
+            f"{GRR_DESIGN.trials_per_part} trials = {GRR_DESIGN.report_blocks} report blocks."
+        )
+        st.caption(
+            "Input layout is detected automatically: BEGIN/END blocks or continuous "
+            "part-tagged measurements. Headers and footers are ignored."
+        )
         uploaded = st.file_uploader("Upload GAGE RR DATA.txt", type=["txt"], key="grr_raw")
 
     st.divider()
@@ -477,8 +500,7 @@ def _render_gage_rr_page() -> None:
             df = transform_gage_rr_data(
                 buffer,
                 output_file=None,
-                num_operators=num_operators,
-                trials_per_part=trials_per_part,
+                input_format="auto",
             )
             all_results = calculate_gage_rr_by_characteristic(df)
 
@@ -504,16 +526,14 @@ def _render_gage_rr_page() -> None:
     ndc = results["ndc"]
 
     # Determine verdict
-    if grr_pct < 10 and ndc >= 5:
-        verdict = "PASS"
+    verdict = classify_gage_rr(grr_pct, ndc)
+    if verdict == "PASS":
         verdict_color = "🟢"
         verdict_msg = "Excellent - Measurement system is acceptable"
-    elif 10 <= grr_pct <= 30 and ndc >= 5:
-        verdict = "MARGINAL"
+    elif verdict == "MARGINAL":
         verdict_color = "🟡"
         verdict_msg = "Marginal - Measurement system may be acceptable depending on application"
     else:
-        verdict = "FAIL"
         verdict_color = "🔴"
         verdict_msg = "Unacceptable - Measurement system needs improvement"
 
@@ -526,13 +546,19 @@ def _render_gage_rr_page() -> None:
         metrics_cols[3].metric("Verdict", verdict, delta=verdict_color)
 
     st.markdown(f"**{verdict_color} {verdict_msg}**")
-    st.caption(f"Number of Distinct Categories (NDC): {ndc} | Target: >= 5")
+    st.caption(f"Number of Distinct Categories (NDC): {ndc} | Target: >= {GRR_MINIMUM_NDC}")
     st.caption("The Number of Distinct Categories (NDC) indicates how many part-to-part categories the measurement system can reliably distinguish. A value of 5 or more is generally considered acceptable.")
 
     st.divider()
 
     with st.container():
-        st.markdown("#### ANOVA Table")
+        st.markdown("#### ANOVA Table With Interaction")
+        st.dataframe(results["anova_table_with_interaction"], use_container_width=True)
+
+    st.divider()
+
+    with st.container():
+        st.markdown("#### Final ANOVA Table")
         anova_df = results["anova_table"]
         st.dataframe(anova_df, use_container_width=True)
 
