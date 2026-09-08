@@ -20,9 +20,16 @@ from gage_tracer.calculations import (
 )
 from gage_tracer.visualization import create_dashboard, create_gage_rr_dashboard, create_gage_rr_html_dashboard
 from gage_tracer.paired_ttest import (
+    calculate_paired_ttest_diagnostics,
     parse_paired_measurements,
     calculate_paired_ttest_metrics,
     create_paired_ttest_dashboard,
+)
+from gage_tracer.paired_visualization import (
+    create_paired_diagnostic_figures,
+    create_paired_power_figure,
+    create_paired_summary_figures,
+    create_paired_worksheet_order_figure,
 )
 from gage_tracer.study_config import (
     GRR_DESIGN,
@@ -32,8 +39,12 @@ from gage_tracer.study_config import (
 )
 from gage_tracer.presentation import (
     build_type1_summary,
+    format_paired_preview,
     format_type1_dataframe,
     metric_status,
+    paired_data_quality_summary,
+    paired_descriptive_dataframe,
+    paired_outliers_dataframe,
     paired_summary_dataframe,
 )
 
@@ -410,6 +421,7 @@ def _render_paired_page() -> None:
             buffer_b = _uploaded_to_textio(file_b)
             paired_df, system_a, system_b, differences = parse_paired_measurements(buffer_a, buffer_b)
             metrics = calculate_paired_ttest_metrics(system_a, system_b)
+            diagnostics = calculate_paired_ttest_diagnostics(system_a, system_b)
 
     except ValueError as exc:
         st.error("Paired data must have the same number of observations.")
@@ -437,16 +449,85 @@ def _render_paired_page() -> None:
 
     st.divider()
 
-    with st.container():
-        st.markdown("#### Paired T-Test summary")
-        summary_df = paired_summary_dataframe(metrics)
-        st.dataframe(summary_df, use_container_width=True)
+    summary_tab, diagnostics_tab, report_card_tab = st.tabs(
+        ["Summary Report", "Diagnostic Report", "Report Card"]
+    )
 
-    st.divider()
+    with summary_tab:
+        gauge_figure, interval_figure = create_paired_summary_figures(metrics)
+        top_left, top_right = st.columns(2)
+        with top_left:
+            st.pyplot(gauge_figure, use_container_width=True)
+        with top_right:
+            st.pyplot(interval_figure, use_container_width=True)
 
-    with st.container():
-        st.markdown("#### Uploaded paired data preview")
-        st.dataframe(paired_df, use_container_width=True)
+        bottom_left, bottom_right = st.columns(2)
+        with bottom_left:
+            st.markdown("#### Descriptive statistics")
+            st.dataframe(paired_descriptive_dataframe(metrics), use_container_width=True, hide_index=True)
+            st.caption(
+                f"t = {metrics['T_Value']:.4f} | df = {metrics['DF']} | "
+                f"p-value = {metrics['P_Value']:.6f}"
+            )
+        with bottom_right:
+            st.markdown("#### Executive comments")
+            conclusion = "are statistically different" if p_value_status == "REJECT" else "are not statistically different"
+            st.markdown(
+                f"- System A and System B {conclusion} at α = 0.05.\n"
+                f"- Estimated mean difference: {metrics['Mean_D']:+.6f}.\n"
+                f"- 95% confidence interval: [{metrics['CI_Lower']:+.6f}, {metrics['CI_Upper']:+.6f}]."
+            )
+
+    with diagnostics_tab:
+        paired_figure, histogram_figure, run_figure = create_paired_diagnostic_figures(paired_df, metrics)
+        worksheet_figure = create_paired_worksheet_order_figure(paired_df)
+        power_figure = create_paired_power_figure(diagnostics)
+        st.pyplot(worksheet_figure, use_container_width=True)
+        diagnostic_left, diagnostic_right = st.columns(2)
+        with diagnostic_left:
+            st.pyplot(paired_figure, use_container_width=True)
+        with diagnostic_right:
+            st.pyplot(histogram_figure, use_container_width=True)
+        run_left, outlier_right = st.columns(2)
+        with run_left:
+            st.pyplot(run_figure, use_container_width=True)
+        with outlier_right:
+            st.pyplot(power_figure, use_container_width=True)
+
+        with st.container():
+            st.markdown("#### Severe outliers")
+            if diagnostics["Outlier_Count"]:
+                st.warning(f"{diagnostics['Outlier_Count']} severe outlier(s) detected (> 3σ).")
+                st.dataframe(
+                    paired_outliers_dataframe(paired_df, diagnostics["Outlier_Positions"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.success("No severe outliers detected (> 3σ).")
+
+    with report_card_tab:
+        report_columns = st.columns(3)
+        report_cards = [
+            ("Normality of differences", diagnostics["Normality_Status"], diagnostics["Normality_Message"]),
+            ("Severe outliers", diagnostics["Outlier_Status"], f"{diagnostics['Outlier_Count']} outlier(s) detected beyond 3σ."),
+            ("Sample size", diagnostics["Sample_Size_Status"], diagnostics["Sample_Size_Message"]),
+        ]
+        for column, (title, status, message) in zip(report_columns, report_cards):
+            with column:
+                if status == "PASS":
+                    st.success(f"{title}\n\n{message}")
+                else:
+                    st.warning(f"{title}\n\n{message}")
+
+        st.divider()
+        preview_left, preview_right = st.columns([2, 1])
+        with preview_left:
+            st.markdown("#### Uploaded paired data")
+            st.dataframe(format_paired_preview(paired_df), use_container_width=True, hide_index=True)
+        with preview_right:
+            st.markdown("#### Input quality")
+            st.dataframe(paired_data_quality_summary(paired_df), use_container_width=True)
 
     st.divider()
 

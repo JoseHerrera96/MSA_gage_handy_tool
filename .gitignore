@@ -49,3 +49,6 @@ gage_rr/dashboards/*
 
 # ── Local exploratory scripts ──
 scratch/
+
+# ── Local AI project memory ──
+memoria.md

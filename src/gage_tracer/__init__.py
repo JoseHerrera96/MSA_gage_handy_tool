@@ -30,6 +30,7 @@ from .visualization import create_dashboard, create_gage_rr_dashboard, create_ga
 from .paired_ttest import (
     parse_paired_measurements,
     export_paired_data,
+    calculate_paired_ttest_diagnostics,
     calculate_paired_ttest_metrics,
     create_paired_ttest_dashboard,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "create_gage_rr_html_dashboard",
     "parse_paired_measurements",
     "export_paired_data",
+    "calculate_paired_ttest_diagnostics",
     "calculate_paired_ttest_metrics",
     "create_paired_ttest_dashboard",
     "GRR_DESIGN",
