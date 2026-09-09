@@ -23,6 +23,9 @@ import argparse
 from pathlib import Path
 from typing import Any
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 import pandas as pd
 
 # Root directory — resolve the repository root from inside cli/.
@@ -186,7 +189,7 @@ def run(input_format: str = "auto") -> None:
         return
 
     # Step 2 — Load the parsed data and compute Gage R&R metrics.
-    print(f"\n[2/3] Computing Gage R&R ANOVA metrics …")
+    print(f"\n[2/3] Computing Gage R&R ANOVA metrics ...")
     df: pd.DataFrame = pd.read_csv(GRR_DATA_FILE, sep="\t")
 
     try:
@@ -196,7 +199,7 @@ def run(input_format: str = "auto") -> None:
         return
 
     # Step 3/4 — Generate an independent report and dashboard per characteristic.
-    print(f"\n[3/3] Generating {len(all_results)} characteristic reports …")
+    print(f"\n[3/3] Generating {len(all_results)} characteristic reports ...")
     import matplotlib.pyplot as plt
     for characteristic, results in all_results.items():
         stem = _file_stem(characteristic)

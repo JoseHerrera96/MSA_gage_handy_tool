@@ -1,6 +1,6 @@
 ======================================================================
 PAIRED T-TEST COMPARISON: SYSTEM A vs. SYSTEM B
-Date: 2026-06-25 14:53:03
+Date: 2026-09-08 23:59:49
 ======================================================================
 
 HYPOTHESES
@@ -15,23 +15,23 @@ DESCRIPTIVE STATISTICS
 ----------------------------------------------------------------------
 Statistic                        System A        System B      Difference
 ----------------------------------------------------------------------
-N                                     599             599             599
-Mean                           0.34045691      0.35420361     -0.01374669
-StDev                          0.01664634      0.01789534      0.02080099
-SE Mean                        0.00068015      0.00073118      0.00084991
+N                                      29              29              29
+Mean                           0.35400000      0.35399655      0.00000345
+StDev                          0.00016036      0.00019727      0.00009443
+SE Mean                        0.00002978      0.00003663      0.00001753
 
 PAIRED T-TEST RESULTS
 ----------------------------------------------------------------------
-Mean Difference (A − B):        -0.01374669
-95% Confidence Interval:    [    -0.01541586,     -0.01207753]
-T-Statistic:                     -16.174381
-Degrees of Freedom:                     598
-P-Value (two-sided):               0.000000
+Mean Difference (A − B):         0.00000345
+95% Confidence Interval:    [    -0.00003247,      0.00003937]
+T-Statistic:                       0.196657
+Degrees of Freedom:                      28
+P-Value (two-sided):               0.845516
 
 CONCLUSION
 ----------------------------------------------------------------------
-P-Value (0.000000) < α (0.05): REJECT NULL HYPOTHESIS
-Interpretation: The means of System A and System B are
-statistically significantly different.
+P-Value (0.845516) >= α (0.05): FAIL TO REJECT NULL HYPOTHESIS
+Interpretation: There is no statistically significant
+difference between System A and System B.
 
 ======================================================================

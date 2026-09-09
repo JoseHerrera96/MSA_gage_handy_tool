@@ -20,16 +20,22 @@ from gage_tracer.calculations import (
 )
 from gage_tracer.visualization import create_dashboard, create_gage_rr_dashboard, create_gage_rr_html_dashboard
 from gage_tracer.paired_ttest import (
+    build_minitab_summary_comments,
+    build_power_explanatory_text,
+    build_report_card_rows,
     calculate_paired_ttest_diagnostics,
     parse_paired_measurements,
     calculate_paired_ttest_metrics,
     create_paired_ttest_dashboard,
 )
 from gage_tracer.paired_visualization import (
-    create_paired_diagnostic_figures,
-    create_paired_power_figure,
-    create_paired_summary_figures,
-    create_paired_worksheet_order_figure,
+    create_histogram_ci_figure,
+    create_power_figure,
+    create_paired_slopegraph_figure,
+    create_pvalue_gauge_figure,
+    create_run_chart_figure,
+    create_stats_tables_figure,
+    create_worksheet_order_figure,
 )
 from gage_tracer.study_config import (
     GRR_DESIGN,
@@ -400,7 +406,7 @@ def _render_type1_page() -> None:
 
 
 def _render_paired_page() -> None:
-    st.header("Paired T-Test Analysis")
+    st.header("Paired t Test for the Mean of Two Systems")
     with st.container():
         st.markdown("#### Step 1 — Upload paired system measurements")
         left, right = st.columns(2)
@@ -420,8 +426,21 @@ def _render_paired_page() -> None:
             buffer_a = _uploaded_to_textio(file_a)
             buffer_b = _uploaded_to_textio(file_b)
             paired_df, system_a, system_b, differences = parse_paired_measurements(buffer_a, buffer_b)
+
+            system_a_name = Path(file_a.name).stem if hasattr(file_a, "name") else "System A"
+            system_b_name = Path(file_b.name).stem if hasattr(file_b, "name") else "System B"
+            if "PAIRED DATA " in system_a_name:
+                system_a_name = system_a_name.replace("PAIRED DATA ", "")
+            if "PAIRED DATA " in system_b_name:
+                system_b_name = system_b_name.replace("PAIRED DATA ", "")
+
             metrics = calculate_paired_ttest_metrics(system_a, system_b)
-            diagnostics = calculate_paired_ttest_diagnostics(system_a, system_b)
+            diagnostics = calculate_paired_ttest_diagnostics(
+                system_a,
+                system_b,
+                system_a_name=system_a_name,
+                system_b_name=system_b_name,
+            )
 
     except ValueError as exc:
         st.error("Paired data must have the same number of observations.")
@@ -432,20 +451,26 @@ def _render_paired_page() -> None:
         st.warning(str(exc))
         return
 
-    p_value_status = "PASS" if metrics["P_Value"] >= 0.05 else "REJECT"
+    p_value = float(metrics["P_Value"])
+    p_value_label = f"{p_value:.6f}"
+    alpha_comparison = f"p {'<' if p_value < 0.05 else '>'} 0.05"
 
     with st.container():
         st.markdown("#### Key results")
         result_cols = st.columns(4)
-        result_cols[0].metric("N", int(metrics["N"]))
-        result_cols[1].metric("Mean Diff", f"{metrics['Mean_D']:+.6f}")
-        result_cols[2].metric("T-Statistic", f"{metrics['T_Value']:.4f}")
-        result_cols[3].metric("P-Value", f"{metrics['P_Value']:.6f}", delta=p_value_status)
+        result_cols[0].metric("Sample size", int(metrics["N"]))
+        result_cols[1].metric("Mean difference", f"{float(metrics['Mean_D']):+.6g}")
+        result_cols[2].metric("T-Statistic", f"{float(metrics['T_Value']):.4f}")
+        result_cols[3].metric("P-Value", p_value_label)
 
-    if p_value_status == "PASS":
-        st.success("The paired test does not reject the null hypothesis at α = 0.05.")
+    if p_value < 0.05:
+        st.success(
+            f"The mean of {system_a_name} is significantly different from the mean of {system_b_name} ({alpha_comparison})."
+        )
     else:
-        st.error("The paired test rejects the null hypothesis at α = 0.05.")
+        st.info(
+            f"The mean of {system_a_name} is not significantly different from the mean of {system_b_name} ({alpha_comparison})."
+        )
 
     st.divider()
 
@@ -454,50 +479,59 @@ def _render_paired_page() -> None:
     )
 
     with summary_tab:
-        gauge_figure, interval_figure = create_paired_summary_figures(metrics)
+        gauge_figure = create_pvalue_gauge_figure(metrics, system_a_name=system_a_name, system_b_name=system_b_name)
+        stats_tables_figure = create_stats_tables_figure(metrics, system_a_name=system_a_name, system_b_name=system_b_name)
+        histogram_ci_figure = create_histogram_ci_figure(paired_df, metrics)
         top_left, top_right = st.columns(2)
         with top_left:
             st.pyplot(gauge_figure, use_container_width=True)
         with top_right:
-            st.pyplot(interval_figure, use_container_width=True)
+            st.pyplot(stats_tables_figure, use_container_width=True)
 
         bottom_left, bottom_right = st.columns(2)
         with bottom_left:
-            st.markdown("#### Descriptive statistics")
-            st.dataframe(paired_descriptive_dataframe(metrics), use_container_width=True, hide_index=True)
-            st.caption(
-                f"t = {metrics['T_Value']:.4f} | df = {metrics['DF']} | "
-                f"p-value = {metrics['P_Value']:.6f}"
-            )
+            st.pyplot(histogram_ci_figure, use_container_width=True)
         with bottom_right:
-            st.markdown("#### Executive comments")
-            conclusion = "are statistically different" if p_value_status == "REJECT" else "are not statistically different"
-            st.markdown(
-                f"- System A and System B {conclusion} at α = 0.05.\n"
-                f"- Estimated mean difference: {metrics['Mean_D']:+.6f}.\n"
-                f"- 95% confidence interval: [{metrics['CI_Lower']:+.6f}, {metrics['CI_Upper']:+.6f}]."
-            )
+            st.markdown("#### Comments")
+            comments = build_minitab_summary_comments(metrics)
+            for comment in comments:
+                body = comment["body"]
+                heading = comment["heading"]
+                if body.startswith(f"{heading}:"):
+                    body_text = body[len(heading) + 1:].lstrip()
+                elif body.startswith(f"{heading} "):
+                    body_text = body[len(heading) + 1:].lstrip()
+                else:
+                    body_text = body
+                st.markdown(f"**{heading}:** {body_text}")
 
     with diagnostics_tab:
-        paired_figure, histogram_figure, run_figure = create_paired_diagnostic_figures(paired_df, metrics)
-        worksheet_figure = create_paired_worksheet_order_figure(paired_df)
-        power_figure = create_paired_power_figure(diagnostics)
+        outlier_positions = list(diagnostics["Outlier_Positions"])
+        worksheet_figure = create_worksheet_order_figure(
+            paired_df, outlier_positions, system_a_name=system_a_name, system_b_name=system_b_name
+        )
+        slopegraph_figure = create_paired_slopegraph_figure(
+            paired_df, metrics, system_a_name=system_a_name, system_b_name=system_b_name
+        )
+        run_figure = create_run_chart_figure(paired_df, metrics)
+        power_figure = create_power_figure(diagnostics, metrics)
+
         st.pyplot(worksheet_figure, use_container_width=True)
-        diagnostic_left, diagnostic_right = st.columns(2)
-        with diagnostic_left:
-            st.pyplot(paired_figure, use_container_width=True)
-        with diagnostic_right:
-            st.pyplot(histogram_figure, use_container_width=True)
-        run_left, outlier_right = st.columns(2)
-        with run_left:
+        diag_left, diag_right = st.columns(2)
+        with diag_left:
+            st.pyplot(slopegraph_figure, use_container_width=True)
+        with diag_right:
             st.pyplot(run_figure, use_container_width=True)
-        with outlier_right:
-            st.pyplot(power_figure, use_container_width=True)
+        st.pyplot(power_figure, use_container_width=True)
+
+        power_text = build_power_explanatory_text(diagnostics)
+        st.caption(power_text["paragraph"])
+        st.info(power_text["footer"])
 
         with st.container():
-            st.markdown("#### Severe outliers")
+            st.markdown("#### Severe outlier summary (> 3σ)")
             if diagnostics["Outlier_Count"]:
-                st.warning(f"{diagnostics['Outlier_Count']} severe outlier(s) detected (> 3σ).")
+                st.warning(f"{int(diagnostics['Outlier_Count'])} severe outlier(s) detected (> 3σ).")
                 st.dataframe(
                     paired_outliers_dataframe(paired_df, diagnostics["Outlier_Positions"]),
                     use_container_width=True,
@@ -507,18 +541,23 @@ def _render_paired_page() -> None:
                 st.success("No severe outliers detected (> 3σ).")
 
     with report_card_tab:
-        report_columns = st.columns(3)
-        report_cards = [
-            ("Normality of differences", diagnostics["Normality_Status"], diagnostics["Normality_Message"]),
-            ("Severe outliers", diagnostics["Outlier_Status"], f"{diagnostics['Outlier_Count']} outlier(s) detected beyond 3σ."),
-            ("Sample size", diagnostics["Sample_Size_Status"], diagnostics["Sample_Size_Message"]),
-        ]
-        for column, (title, status, message) in zip(report_columns, report_cards):
-            with column:
-                if status == "PASS":
-                    st.success(f"{title}\n\n{message}")
-                else:
-                    st.warning(f"{title}\n\n{message}")
+        st.markdown("#### Report Card")
+        report_rows = build_report_card_rows(metrics, diagnostics)
+        report_df = pd.DataFrame(
+            {
+                "Check": [r["Check"] for r in report_rows],
+                "Status": [r["Icon"] for r in report_rows],
+                "Description": [r["Description"] for r in report_rows],
+            }
+        )
+        st.dataframe(
+            report_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Status": st.column_config.TextColumn("Status", width="small"),
+            },
+        )
 
         st.divider()
         preview_left, preview_right = st.columns([2, 1])
@@ -545,7 +584,13 @@ def _render_paired_page() -> None:
 
     with st.container():
         st.markdown("#### Export dashboard")
-        html = create_paired_ttest_dashboard(paired_df, metrics, output_path=None)
+        html = create_paired_ttest_dashboard(
+            paired_df,
+            metrics,
+            output_path=None,
+            system_a_name=system_a_name,
+            system_b_name=system_b_name,
+        )
         st.download_button(
             label="Download Paired T-Test Dashboard HTML",
             data=html,

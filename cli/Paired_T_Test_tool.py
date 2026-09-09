@@ -28,6 +28,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 import pandas as pd
 
 # Root directory — resolve the repository root from inside cli/.
@@ -204,25 +207,25 @@ def run() -> None:
         paired_df, system_a, system_b, differences = parse_paired_measurements(
             SYSTEM_A_FILE, SYSTEM_B_FILE
         )
-        print(f"      ✓ Loaded {len(system_a)} paired observations")
+        print(f"      [OK] Loaded {len(system_a)} paired observations")
     except Exception as e:
-        print(f"      ✗ Error parsing files: {e}")
+        print(f"      [ERROR] Error parsing files: {e}")
         return
 
     # Step 2 — Export paired data to TSV.
     print(f"\n[2/4] Exporting paired data to TSV...")
     try:
         export_paired_data(paired_df, PAIRED_DATA_FILE)
-        print(f"      ✓ Data exported to {PAIRED_DATA_FILE.relative_to(PROJECT_ROOT)}")
+        print(f"      [OK] Data exported to {PAIRED_DATA_FILE.relative_to(PROJECT_ROOT)}")
     except Exception as e:
-        print(f"      ✗ Error exporting: {e}")
+        print(f"      [ERROR] Error exporting: {e}")
         return
 
     # Step 3 — Compute paired t-test metrics.
     print(f"\n[3/4] Computing paired t-test metrics...")
     try:
         metrics = calculate_paired_ttest_metrics(system_a, system_b)
-        print(f"      ✓ Metrics computed successfully")
+        print(f"      [OK] Metrics computed successfully")
         print(
             f"        Mean Difference: {float(metrics['Mean_D']):+.8f}"
         )
@@ -233,33 +236,33 @@ def run() -> None:
             f"        P-Value: {float(metrics['P_Value']):.6f}"
         )
     except Exception as e:
-        print(f"      ✗ Error in calculations: {e}")
+        print(f"      [ERROR] Error in calculations: {e}")
         return
 
     # Step 4 — Generate text report.
     print(f"\n[4/4] Generating reports...")
     try:
         _generate_text_report(metrics, SUMMARY_TXT)
-        print(f"      ✓ Text report → {SUMMARY_TXT.relative_to(PROJECT_ROOT)}")
+        print(f"      [OK] Text report -> {SUMMARY_TXT.relative_to(PROJECT_ROOT)}")
     except Exception as e:
-        print(f"      ✗ Error generating text report: {e}")
+        print(f"      [ERROR] Error generating text report: {e}")
         return
 
     # Step 5 — Build the interactive HTML dashboard.
     try:
         create_paired_ttest_dashboard(paired_df, metrics, DASHBOARD_HTML)
-        print(f"      ✓ Dashboard → {DASHBOARD_HTML.relative_to(PROJECT_ROOT)}")
+        print(f"      [OK] Dashboard -> {DASHBOARD_HTML.relative_to(PROJECT_ROOT)}")
     except Exception as e:
-        print(f"      ✗ Error generating dashboard: {e}")
+        print(f"      [ERROR] Error generating dashboard: {e}")
         return
 
     print(f"\n{'=' * 60}")
-    print(f"  [✓ SUCCESS]")
+    print(f"  [SUCCESS]")
     print(f"{'=' * 60}")
     print(f"\nGenerated files:")
-    print(f"  • {PAIRED_DATA_FILE.name}")
-    print(f"  • {SUMMARY_TXT.name}")
-    print(f"  • {DASHBOARD_HTML.name}")
+    print(f"  * {PAIRED_DATA_FILE.name}")
+    print(f"  * {SUMMARY_TXT.name}")
+    print(f"  * {DASHBOARD_HTML.name}")
     print(f"\nOpen the .html file in your browser to view the dashboard.\n")
 
 

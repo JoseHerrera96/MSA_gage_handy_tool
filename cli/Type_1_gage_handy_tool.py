@@ -20,6 +20,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 import pandas as pd
 
 # Root directory — resolve the repository root from inside cli/.
@@ -143,7 +146,7 @@ def run() -> None:
         return
 
     # Step 2 — Load the parsed data and compute Gage Study metrics.
-    print(f"\n[2/3] Computing Type 1 Gage metrics …")
+    print(f"\n[2/3] Computing Type 1 Gage metrics ...")
     df: pd.DataFrame = pd.read_csv(GAGE_DATA_FILE, sep="\t")
 
     # These columns are metadata/stats — everything else is a measurement dimension.
@@ -169,12 +172,12 @@ def run() -> None:
     print(f"     Report generated: {len(summary)} dimensions analyzed.")
 
     # Step 4 — Build the interactive HTML dashboard.
-    print(f"\n[3/3] Generating dashboard …")
+    print(f"\n[3/3] Generating dashboard ...")
     create_dashboard(df, summary, DASHBOARD_HTML)
 
     print(f"\n{'=' * 50}")
-    print(f"  [OK] Text report  → {SUMMARY_TXT.name}")
-    print(f"  [OK] Dashboard    → {DASHBOARD_HTML.name}")
+    print(f"  [OK] Text report  -> {SUMMARY_TXT.name}")
+    print(f"  [OK] Dashboard    -> {DASHBOARD_HTML.name}")
     print(f"{'=' * 50}")
 
 
