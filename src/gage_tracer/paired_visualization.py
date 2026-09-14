@@ -27,21 +27,21 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # Styling constants matching Minitab Assistant
 # ---------------------------------------------------------------------------
-_DARK = "#202020"
-_MUTED = "#555555"
-_GRID = "#E2E2E6"
-_BG = "#FFFFFF"
-_AXIS_BG = "#FFFFFF"
-_SPINE = "#BBBBBB"
+_DARK = "#F2F2F2"
+_MUTED = "#B8B8B8"
+_GRID = "#454545"
+_BG = "#171717"
+_AXIS_BG = "#242424"
+_SPINE = "#666666"
 
-_MINITAB_BLUE = "#6B9AC9"
-_MINITAB_BLUE_DARK = "#0F4C8C"
-_MINITAB_BLUE_LIGHT = "#8EAECF"
-_MINITAB_BLUE_PALE = "#D4E1EE"
-_MINITAB_GREEN = "#1A6B3C"
-_MINITAB_RED = "#B22222"
-_MINITAB_ORANGE = "#E8801C"
-_MINITAB_YELLOW = "#F1C240"
+_MINITAB_BLUE = "#6FA8DC"
+_MINITAB_BLUE_DARK = "#4DA3FF"
+_MINITAB_BLUE_LIGHT = "#6F9FC9"
+_MINITAB_BLUE_PALE = "#3A4B5C"
+_MINITAB_GREEN = "#39D98A"
+_MINITAB_RED = "#FF6B6B"
+_MINITAB_ORANGE = "#FF8C00"
+_MINITAB_YELLOW = "#F5C84C"
 
 _TITLE_WEIGHT = "bold"
 _TITLE_SIZE = 12
@@ -203,7 +203,7 @@ def create_pvalue_gauge_figure(
         fontsize=9.5,
         color=_MINITAB_ORANGE,
         fontweight="bold",
-        bbox=dict(boxstyle="square,pad=0.25", fc="#FFFFFF", ec=_MINITAB_ORANGE, lw=1.3),
+        bbox=dict(boxstyle="square,pad=0.25", fc=_AXIS_BG, ec=_MINITAB_ORANGE, lw=1.3),
         zorder=7,
     )
 
@@ -535,8 +535,10 @@ def create_power_figure(
     for (row_idx, col_idx), cell in t.get_celld().items():
         cell.set_edgecolor("#BBBBBB")
         cell.set_linewidth(0.7)
+        cell.set_facecolor(_AXIS_BG)
+        cell.set_text_props(color=_DARK)
         if row_idx == 0:
-            cell.set_facecolor("#E8E8E8")
+            cell.set_facecolor("#353535")
             cell.set_text_props(weight="bold", color=_DARK, fontsize=9.4)
 
     table_axis.text(
@@ -608,8 +610,9 @@ def create_stats_tables_figure(
     for (row_idx, col_idx), cell in t1.get_celld().items():
         cell.set_edgecolor("#BBBBBB")
         cell.set_linewidth(0.7)
+        cell.set_facecolor(_AXIS_BG)
         if row_idx == 0:
-            cell.set_facecolor("#E8E8E8")
+            cell.set_facecolor("#353535")
             cell.set_text_props(weight="bold", color=_DARK, fontsize=9.8)
         else:
             if col_idx == 0:
@@ -649,8 +652,9 @@ def create_stats_tables_figure(
     for (row_idx, col_idx), cell in t2.get_celld().items():
         cell.set_edgecolor("#BBBBBB")
         cell.set_linewidth(0.7)
+        cell.set_facecolor(_AXIS_BG)
         if row_idx == 0:
-            cell.set_facecolor("#E8E8E8")
+            cell.set_facecolor("#353535")
             cell.set_text_props(weight="bold", color=_DARK, fontsize=9.8)
         else:
             if col_idx == 0:

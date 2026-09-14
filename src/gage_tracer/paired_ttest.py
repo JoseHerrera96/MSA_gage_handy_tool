@@ -834,7 +834,7 @@ def create_paired_ttest_dashboard(
     report_rows = build_report_card_rows(metrics, diagnostics)
     report_card_html = (
         "<table class='report-table' style='width:100%;border-collapse:collapse;font-size:14px;'>"
-        "<thead><tr style='background:#E8E8E8;'>"
+        "<thead><tr style='background:#353535;color:#F2F2F2;'>"
         "<th style='padding:10px;text-align:left;border:1px solid #BBB;'>Check</th>"
         "<th style='padding:10px;text-align:center;border:1px solid #BBB;'>Status</th>"
         "<th style='padding:10px;text-align:left;border:1px solid #BBB;'>Description</th>"
@@ -866,17 +866,17 @@ def create_paired_ttest_dashboard(
     html_content = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Paired t Test Report</title><style>
-:root {{ --bg:#F1F1F1; --surface:#FFFFFF; --raised:#E8E8E8; --text:#202020; --muted:#5D5D5D; --border:#C9C9C9; --accent:#E8801C; --green:#1A6B3C; --red:#B22222; --yellow:#8A5A00; --blue:#0F4C8C; }}
+:root {{ --bg:#171717; --surface:#242424; --raised:#303030; --text:#F2F2F2; --muted:#B8B8B8; --border:#555555; --accent:#FF8C00; --green:#39D98A; --red:#FF6B6B; --yellow:#F5C84C; --blue:#4DA3FF; }}
 * {{ box-sizing:border-box; }} body {{ margin:0; background:var(--bg); color:var(--text); font:14px "Segoe UI",sans-serif; line-height:1.55; }}
 .page {{ max-width:1440px; margin:auto; padding:28px; }} .header {{ border-bottom:2px solid var(--border); margin-bottom:20px; padding-bottom:16px; text-align:center; }}
-h1 {{ margin:0; font-size:24px; color:#333; }} h2 {{ font-size:16px; margin:0 0 14px; color:#333; }} h3 {{ font-size:14px; margin:0 0 8px; }} .subtitle {{ color:var(--muted); font-size:14px; margin-top:4px; }} .muted {{ color:var(--muted); }}
+h1 {{ margin:0; font-size:24px; color:var(--text); }} h2 {{ font-size:16px; margin:0 0 14px; color:var(--text); }} h3 {{ font-size:14px; margin:0 0 8px; }} .subtitle {{ color:var(--muted); font-size:14px; margin-top:4px; }} .muted {{ color:var(--muted); }}
 .grid2 {{ display:grid; gap:16px; grid-template-columns:repeat(2,minmax(0,1fr)); }}
 .card {{ background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px; margin-bottom:16px; }}
 .tabs {{ display:flex; gap:4px; border-bottom:1px solid var(--border); margin:22px 0 16px; }} .tab {{ border:0; border-radius:6px 6px 0 0; background:var(--raised); color:var(--text); cursor:pointer; font-weight:600; padding:10px 16px; font-size:14px; }} .tab.active {{ background:var(--accent); color:#fff; }} .panel {{ display:none; }} .panel.active {{ display:block; }}
 .chart {{ width:100%; height:auto; display:block; }} .data-table {{ width:100%; border-collapse:collapse; font-size:13px; }} .data-table th {{ background:#444; color:#fff; text-align:left; padding:8px; }} .data-table td {{ padding:8px; border-bottom:1px solid var(--border); }} .data-table tr:nth-child(even) {{ background:var(--raised); }}
 .pass {{ color:var(--green); font-weight:600; }} .warning {{ color:var(--yellow); font-weight:600; }} ul {{ margin:0; padding-left:20px; }} ul li {{ padding:2px 0; }}
-.footer-note {{ background:#F6F6F6; border-left:3px solid var(--accent); padding:10px 14px; font-size:13px; color:var(--muted); margin-top:8px; }}
-.comments-card {{ background:#FAFAFA; border:1px solid var(--border); border-radius:6px; padding:14px 18px; }}
+.footer-note {{ background:#303030; border-left:3px solid var(--accent); padding:10px 14px; font-size:13px; color:var(--muted); margin-top:8px; }}
+.comments-card {{ background:#2B2B2B; border:1px solid var(--border); border-radius:6px; padding:14px 18px; }}
 @media(max-width:800px) {{ .grid2 {{ grid-template-columns:1fr; }} .page {{ padding:16px; }} }}
 </style></head><body><main class="page">
 <header class="header">

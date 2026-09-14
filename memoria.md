@@ -1,12 +1,12 @@
 # Memoria del proyecto
 
 > Archivo local de contexto para agentes de AI. No debe versionarse ni subirse al repositorio.
-> Última actualización: 2026-09-08.
+> Última actualización: 2026-09-14.
 
 ## Estado actual
 
 - Repositorio: `Type_1_gage_handy_tool`.
-- Rama activa al documentar: `improving-Paired-T`.
+- Rama activa al documentar: `improving-paired-preview`.
 - Último commit visible: `eac74f4 debug GRR tool`.
 - Commit modular anterior: `0aafd70 feat: modularize MSA workflows and improve crossed Gage R&R parsing`.
 - Entorno Python: `.venv`, Python 3.14, paquetes principales pandas, numpy, scipy, matplotlib, streamlit y watchdog.
@@ -57,7 +57,16 @@
 - `src/gage_tracer/paired_ttest.py`
   - Parser de dos archivos numéricos.
   - Cálculo de paired t-test, IC 95%, dashboard.
+  - Diagnósticos Minitab-like: normalidad, outliers > 3σ, tamaño de muestra y potencia/diferencias detectables.
+  - Exportación HTML con Summary Report, Diagnostic Report y Report Card.
   - Advertencia pendiente: descarta líneas no numéricas silenciosamente.
+
+- `src/gage_tracer/paired_visualization.py`
+  - Gráficos Paired T alineados con Minitab Assistant.
+  - Gauge de p-value, tablas de estadísticas, histograma con IC, worksheet order,
+    slopegraph, run chart y power/detectable difference.
+  - Usa paleta dark compartida: fondo carbón, texto claro, naranja `#FF8C00`,
+    azul visible para System B, verde y rojo semánticos.
 
 - `src/app.py`
   - Orquestación Streamlit.
@@ -98,6 +107,11 @@
   - Textos de tablas/uploader en negro.
   - Botones y uploader en naranja oscuro.
   - Alertas informativas eliminaron el fondo azul.
+- Paired T:
+  - Preview organizado en tres pestañas: Summary Report, Diagnostic Report y Report Card.
+  - El HTML descargable mantiene paridad con el preview y embebe siete gráficos.
+  - Las tablas y textos de los gráficos Paired T fueron ajustados para dark mode.
+  - La tabla Difference/Power usa texto `#F2F2F2` para contraste.
 
 ## Validaciones actuales
 
@@ -133,6 +147,12 @@
   - Referencia crítica para formato de una dimensión.
 - `Gage_RR_C20_minitab.htm`
   - Referencia externa de Minitab para comparar resultados.
+- `paired_ttest/docs/paired_t_summary.png`
+  - Referencia visual del Summary Report de Minitab Assistant.
+- `paired_ttest/docs/Paired_t_diagnostic.png`
+  - Referencia visual del Diagnostic Report, worksheet order y power.
+- `paired_ttest/docs/paired_t_eval.png`
+  - Referencia visual del Report Card.
 
 ## Preferencias del usuario observadas
 

@@ -190,6 +190,57 @@ Ran terminal command: & .\.venv\Scripts\python.exe -c "import sys; sys.path.inse
 
 Ran terminal command: & .\.venv\Scripts\python.exe -m compileall -q src cli streamlit_app.py tests; if ($LASTEXITCODE -eq 0) { 'Compilation OK' }
 
+## Actualización de estado — 2026-09-14
+
+Se continuó el trabajo de alineación del Paired T-Test con los reportes del Minitab Assistant.
+
+### Estado funcional actual
+
+- El preview Streamlit tiene tres pestañas:
+  - Summary Report
+  - Diagnostic Report
+  - Report Card
+- El HTML descargable contiene las mismas secciones y mantiene paridad con el preview.
+- El reporte Paired T exportado contiene siete gráficos embebidos:
+  1. P-value gauge / Do the means differ?
+  2. Paired Differences + Individual Samples tables.
+  3. Distribution of Differences con intervalo de confianza.
+  4. Paired Data in Worksheet Order.
+  5. Paired slopegraph.
+  6. Differences by observation order.
+  7. Power y detectable difference.
+- El Report Card contiene Unusual Data, Normality y Sample Size con iconos/estados y texto Minitab-like.
+- El análisis incluye normalidad Anderson-Darling para muestras pequeñas, regla de robustez para n >= 20, outliers > 3 sigma y potencia/diferencias detectables al 60%, 70%, 80% y 90%.
+
+### Dark mode
+
+- Todos los gráficos Paired T usan fondo carbón y ejes oscuros.
+- Texto, tablas y etiquetas usan tonos claros contrastantes.
+- El naranja de énfasis es `#FF8C00`.
+- System B usa azul brillante; outliers rojo; estados positivos verde.
+- La tabla Difference/Power fue corregida para usar texto `#F2F2F2`, evitando texto negro invisible.
+- El HTML exportado también usa una shell dark coherente.
+
+### Validación reciente
+
+- `9 focused tests: OK`.
+- Compilación completa de `src`, `cli`, `streamlit_app.py` y `tests`: OK.
+- El HTML validado contiene tres secciones y siete imágenes Base64.
+- Se confirmó que los gráficos se renderizan con fondo oscuro.
+
+### Archivos principales modificados en esta fase
+
+- `src/gage_tracer/paired_ttest.py`
+- `src/gage_tracer/paired_visualization.py`
+- `src/app.py`
+- `tests/test_modular_domain.py`
+
+### Nota operativa
+
+- La rama de trabajo es `improving-paired-preview`.
+- `memoria.md` es un archivo local ignorado por Git y contiene el resumen persistente del proyecto.
+- No tocar cambios existentes en los archivos de datos Paired T si no se solicita explícitamente.
+
 Checked , , , no problems found
 
 The exported report validation passed: all three tab labels are present and it embeds exactly five charts. I’ll add a regression test for that parity contract so future changes cannot add a preview-only chart or silently drop an HTML report section.
