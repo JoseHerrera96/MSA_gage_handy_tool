@@ -23,6 +23,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy import stats as sp_stats
+from scipy.optimize import brentq
 
 _InputSource = Union[Path, str, TextIO, IO[bytes]]
 
@@ -217,6 +218,261 @@ def calculate_paired_ttest_metrics(
         "H0": "μ_A = μ_B (or equivalently, μ_Difference = 0)",
         "HA": "μ_A ≠ μ_B (two-sided)",
     }
+
+
+def calculate_paired_ttest_diagnostics(
+    system_a: list[float],
+    system_b: list[float],
+    system_a_name: str = "System A",
+    system_b_name: str = "System B",
+) -> dict[str, object]:
+    """Evaluate normality, severe outliers, and sample-size adequacy.
+
+    The checks apply to paired differences, the quantity assumed to be
+    normally distributed by a paired t-test.
+    """
+    if len(system_a) != len(system_b):
+        raise ValueError(f"Length mismatch: {len(system_a)} vs {len(system_b)}")
+    if len(system_a) < 2:
+        raise ValueError("At least 2 paired observations required.")
+
+    differences = np.asarray(system_a, dtype=float) - np.asarray(system_b, dtype=float)
+    sample_size = len(differences)
+    mean_difference = float(np.mean(differences))
+    std_difference = float(np.std(differences, ddof=1))
+    if std_difference > 0:
+        outlier_mask = np.abs(differences - mean_difference) > 3 * std_difference
+    else:
+        outlier_mask = np.zeros(sample_size, dtype=bool)
+
+    normality_statistic: float | None = None
+    normality_critical_value: float | None = None
+    if sample_size >= 20:
+        normality_status = "PASS"
+        normality_message = (
+            "Because your sample size is at least 20, normality is not an issue. "
+            "The test is accurate with nonnormal data when the sample size is large enough."
+        )
+    elif sample_size >= 3 and std_difference > 0:
+        try:
+            anderson_result = sp_stats.anderson(
+                differences, dist="norm", method="interpolate"
+            )
+        except TypeError:
+            anderson_result = sp_stats.anderson(differences, dist="norm")
+        normality_statistic = float(anderson_result.statistic)
+        if hasattr(anderson_result, "pvalue"):
+            normality_critical_value = 0.05
+            normality_status = (
+                "PASS" if float(anderson_result.pvalue) >= normality_critical_value else "WARNING"
+            )
+        else:
+            critical_index = list(anderson_result.significance_level).index(5.0)
+            normality_critical_value = float(anderson_result.critical_values[critical_index])
+            normality_status = (
+                "PASS" if normality_statistic <= normality_critical_value else "WARNING"
+            )
+        normality_message = (
+            "Because your sample size is at least 20, normality is not an issue. "
+            "The test is accurate with nonnormal data when the sample size is large enough."
+            if normality_status == "PASS"
+            else "Differences do not pass the Anderson-Darling normality check at α = 0.05."
+        )
+    else:
+        normality_status = "WARNING"
+        normality_message = "Too few distinct paired differences to assess normality reliably."
+
+    outlier_positions = (np.flatnonzero(outlier_mask) + 1).tolist()
+    outlier_count = len(outlier_positions)
+    outlier_status = "PASS" if outlier_count == 0 else "WARNING"
+    if outlier_count == 0:
+        outlier_message = (
+            "There are no unusual paired differences. "
+            "Unusual data can have a strong influence on the results."
+        )
+    else:
+        outlier_message = (
+            f"{outlier_count} unusual paired difference(s) detected. "
+            "Unusual data can have a strong influence on the results."
+        )
+
+    power_by_target = {
+        target: _paired_ttest_detectable_difference(
+            target, std_difference, sample_size
+        )
+        for target in (0.60, 0.70, 0.80, 0.90)
+    }
+    observed_power = _paired_ttest_power(
+        abs(mean_difference), std_difference, sample_size
+    )
+
+    p_value = 2.0 * sp_stats.t.sf(
+        abs(mean_difference / (std_difference / math.sqrt(sample_size))) if std_difference > 0 else 0.0,
+        sample_size - 1,
+    )
+    delta_90 = power_by_target[0.90]
+    if p_value >= 0.05:
+        sample_size_message = (
+            f"Your data does not provide sufficient evidence to conclude that the mean of {system_a_name} differs from {system_b_name}. "
+            "This may result from having a sample size that is too small. "
+            f"Based on your sample size, standard deviation of the paired differences, "
+            f"and α, you would have a 90% chance of detecting a difference of {_format_smart(delta_90)}. "
+            "To determine how large your samples need to be to detect a difference that has "
+            "practical implications, repeat the analysis and enter a value for the difference."
+        )
+    else:
+        sample_size_message = (
+            f"Your data provides sufficient evidence to conclude that the mean of {system_a_name} differs from {system_b_name} (p < 0.05). "
+            f"Your sample size (n = {sample_size}) is large enough to detect a difference between the means with adequate statistical power."
+        )
+    sample_size_status = "INFO" if p_value >= 0.05 else "PASS"
+
+    return {
+        "Normality_Status": normality_status,
+        "Normality_Message": normality_message,
+        "Anderson_Darling": normality_statistic,
+        "Anderson_Darling_Critical": normality_critical_value,
+        "Outlier_Positions": outlier_positions,
+        "Outlier_Count": outlier_count,
+        "Outlier_Status": outlier_status,
+        "Outlier_Message": outlier_message,
+        "Sample_Size_Status": sample_size_status,
+        "Sample_Size_Message": sample_size_message,
+        "Sample_Size_N": sample_size,
+        "Observed_Power": observed_power,
+        "Detectable_Differences": power_by_target,
+        "Alpha": 0.05,
+    }
+
+
+def _paired_ttest_power(
+    difference: float,
+    std_difference: float,
+    sample_size: int,
+    alpha: float = 0.05,
+) -> float:
+    """Calculate two-sided paired t-test power for a mean difference."""
+    if std_difference <= 0:
+        return 1.0 if difference > 0 else alpha
+    degrees_of_freedom = sample_size - 1
+    critical_value = sp_stats.t.ppf(1 - alpha / 2, degrees_of_freedom)
+    noncentrality = difference * math.sqrt(sample_size) / std_difference
+    return float(
+        sp_stats.norm.cdf(-critical_value - noncentrality)
+        + sp_stats.norm.sf(critical_value - noncentrality)
+    )
+
+
+def _paired_ttest_detectable_difference(
+    target_power: float,
+    std_difference: float,
+    sample_size: int,
+) -> float:
+    """Find the positive mean difference detectable at a target power."""
+    if std_difference <= 0:
+        return 0.0
+    upper_bound = std_difference * 10 / math.sqrt(sample_size)
+    return float(
+        brentq(
+            lambda difference: _paired_ttest_power(
+                difference, std_difference, sample_size
+            ) - target_power,
+            0.0,
+            upper_bound,
+        )
+    )
+
+
+def _format_smart(value: float) -> str:
+    """Format a numeric value matching Minitab's compact scientific style."""
+    if value == 0:
+        return "0"
+    magnitude = abs(value)
+    if magnitude >= 100000 or (magnitude < 0.0001 and magnitude > 0):
+        return f"{value:.4E}"
+    if magnitude < 1 and magnitude > 0:
+        return f"{value:.8f}".rstrip("0").rstrip(".")
+    return f"{value:.6g}"
+
+
+def build_minitab_summary_comments(
+    metrics: dict[str, object],
+) -> list[dict[str, str]]:
+    """Return the three structured Minitab-style comment blocks."""
+    p_value = float(metrics["P_Value"])
+    mean_d = float(metrics["Mean_D"])
+    ci_lower = float(metrics["CI_Lower"])
+    ci_upper = float(metrics["CI_Upper"])
+    alpha = 0.05
+    if p_value < alpha:
+        test_comment = (
+            "Test: There is sufficient evidence to conclude that the means "
+            f"Differ at the {alpha:.2f} level of significance."
+        )
+    else:
+        test_comment = (
+            "Test: There is not enough evidence to conclude that the means "
+            f"Differ at the {alpha:.2f} level of significance."
+        )
+    ci_comment = (
+        f"CI: Quantifies the uncertainty associated with estimating the mean "
+        f"Difference from sample data. You can be 95% confident that the true "
+        f"mean difference is between {_format_smart(ci_lower)} and {_format_smart(ci_upper)}."
+    )
+    distribution_comment = (
+        "Distribution of Differences: Compare the location of the differences to zero. "
+        "Look for unusual differences before interpreting the results of the test."
+    )
+    return [
+        {"heading": "Test", "body": test_comment},
+        {"heading": "CI", "body": ci_comment},
+        {"heading": "Distribution of Differences", "body": distribution_comment},
+    ]
+
+
+def build_report_card_rows(
+    metrics: dict[str, object],
+    diagnostics: dict[str, object],
+) -> list[dict[str, str]]:
+    """Return three rows (Unusual Data, Normality, Sample Size) for the report card table."""
+    outlier_icon = "✅" if diagnostics["Outlier_Status"] == "PASS" else "⚠️"
+    outlier_check = "Unusual Data"
+    normality_icon = "✅" if diagnostics["Normality_Status"] == "PASS" else "⚠️"
+    normality_check = "Normality"
+    sample_size_check = "Sample Size"
+    if diagnostics["Sample_Size_Status"] == "PASS":
+        sample_size_icon = "✅"
+    elif diagnostics["Sample_Size_Status"] == "INFO":
+        sample_size_icon = "ⓘ"
+    else:
+        sample_size_icon = "⚠️"
+    return [
+        {"Check": outlier_check, "Icon": outlier_icon, "Description": str(diagnostics["Outlier_Message"])},
+        {"Check": normality_check, "Icon": normality_icon, "Description": str(diagnostics["Normality_Message"])},
+        {"Check": sample_size_check, "Icon": sample_size_icon, "Description": str(diagnostics["Sample_Size_Message"])},
+    ]
+
+
+def build_power_explanatory_text(
+    diagnostics: dict[str, object],
+) -> dict[str, str]:
+    """Return paragraph + footer text explaining the power analysis (Minitab style)."""
+    alpha = float(diagnostics.get("Alpha", 0.05))
+    sample_size = int(diagnostics.get("Sample_Size_N", 0))
+    detectable = diagnostics["Detectable_Differences"]
+    delta_60 = float(detectable[0.60])
+    delta_90 = float(detectable[0.90])
+    paragraph = (
+        f"For α = {alpha:.2f} and sample size = {sample_size}: "
+        f"If the true means differed by {_format_smart(delta_60)}, you would have a 60% chance of "
+        f"detecting the difference with a paired test. If they differed by {_format_smart(delta_90)}, "
+        f"you would have a 90% chance."
+    )
+    footer = (
+        "Power is a function of the sample size and the standard deviation. "
+        "To detect smaller differences, consider increasing the sample size."
+    )
+    return {"paragraph": paragraph, "footer": footer}
 
 
 # ---------------------------------------------------------------------------
@@ -507,412 +763,174 @@ def create_paired_ttest_dashboard(
     paired_df: pd.DataFrame,
     metrics: dict[str, object],
     output_path: Path | None = None,
+    system_a_name: str = "System A",
+    system_b_name: str = "System B",
 ) -> str:
-    """Generate a self-contained HTML dashboard for paired t-test results.
+    """Generate a self-contained Minitab Assistant-style Paired T-Test report.
 
-    Embeds 4 charts as Base64 images:
-    1. Histogram of Differences
-    2. Individual Value Plot (Scatter: A vs B)
-    3. Boxplot of Differences
-    4. Summary Statistics Table
-
-    Args:
-        paired_df: DataFrame with paired measurements and differences.
-        metrics: Dictionary from calculate_paired_ttest_metrics.
-        output_path: Where to write the HTML file, or ``None`` to skip writing.
-
-    Returns:
-        The rendered HTML content.
+    The exported report mirrors the interactive Summary Report, Diagnostic
+    Report, and Report Card views with exactly seven embedded figures that
+    match the visual style of the Minitab Assistant screenshots.
     """
-    system_a = paired_df["System_A"].tolist()
-    system_b = paired_df["System_B"].tolist()
-    differences = paired_df["Difference"].tolist()
+    from html import escape
 
-    # Render all charts
-    img_histogram = _render_histogram_differences(differences)
-    img_scatter = _render_individual_value_plot(system_a, system_b)
-    img_boxplot = _render_boxplot_differences(differences)
-    img_stats = _render_stats_table_chart(metrics)
+    from .paired_visualization import (
+        create_histogram_ci_figure,
+        create_power_figure,
+        create_paired_slopegraph_figure,
+        create_pvalue_gauge_figure,
+        create_run_chart_figure,
+        create_stats_tables_figure,
+        create_worksheet_order_figure,
+    )
+    from .presentation import (
+        format_paired_preview,
+        paired_data_quality_summary,
+        paired_outliers_dataframe,
+    )
 
-    # Decision logic
-    alpha = 0.05
-    p_val = float(metrics["P_Value"])
-    is_significant = p_val < alpha
+    def encode_figure(figure: plt.Figure) -> str:
+        buffer = BytesIO()
+        figure.savefig(buffer, format="png", dpi=150, bbox_inches="tight", facecolor="#FFFFFF")
+        plt.close(figure)
+        return base64.b64encode(buffer.getvalue()).decode("utf-8")
 
-    # HTML template
+    diagnostics = calculate_paired_ttest_diagnostics(
+        paired_df["System_A"].tolist(),
+        paired_df["System_B"].tolist(),
+        system_a_name=system_a_name,
+        system_b_name=system_b_name,
+    )
+    outlier_positions: list[int] = list(diagnostics["Outlier_Positions"])
+
+    gauge_figure = create_pvalue_gauge_figure(metrics, system_a_name=system_a_name, system_b_name=system_b_name)
+    stats_tables_figure = create_stats_tables_figure(metrics, system_a_name=system_a_name, system_b_name=system_b_name)
+    histogram_ci_figure = create_histogram_ci_figure(paired_df, metrics)
+    worksheet_figure = create_worksheet_order_figure(
+        paired_df, outlier_positions, system_a_name=system_a_name, system_b_name=system_b_name
+    )
+    slopegraph_figure = create_paired_slopegraph_figure(
+        paired_df, metrics, system_a_name=system_a_name, system_b_name=system_b_name
+    )
+    run_figure = create_run_chart_figure(paired_df, metrics)
+    power_figure = create_power_figure(diagnostics, metrics)
+
+    images = {
+        "gauge": encode_figure(gauge_figure),
+        "stats_tables": encode_figure(stats_tables_figure),
+        "histogram_ci": encode_figure(histogram_ci_figure),
+        "worksheet": encode_figure(worksheet_figure),
+        "pairs": encode_figure(slopegraph_figure),
+        "run": encode_figure(run_figure),
+        "power": encode_figure(power_figure),
+    }
+
+    comments = build_minitab_summary_comments(metrics)
+    comments_html = "<ul>" + "".join(
+        f"<li style='margin:6px 0;'><strong>{escape(c['heading'])}:</strong> {escape(c['body'].replace(c['heading'] + ': ', '').replace(c['heading'] + ' ', '')) if c['body'].startswith(c['heading']) else escape(c['body'])}</li>"
+        for c in comments
+    ) + "</ul>"
+
+    report_rows = build_report_card_rows(metrics, diagnostics)
+    report_card_html = (
+        "<table class='report-table' style='width:100%;border-collapse:collapse;font-size:14px;'>"
+        "<thead><tr style='background:#353535;color:#F2F2F2;'>"
+        "<th style='padding:10px;text-align:left;border:1px solid #BBB;'>Check</th>"
+        "<th style='padding:10px;text-align:center;border:1px solid #BBB;'>Status</th>"
+        "<th style='padding:10px;text-align:left;border:1px solid #BBB;'>Description</th>"
+        "</tr></thead><tbody>"
+        + "".join(
+            f"<tr>"
+            f"<td style='padding:10px;border:1px solid #BBB;font-weight:600;'>{escape(r['Check'])}</td>"
+            f"<td style='padding:10px;border:1px solid #BBB;text-align:center;font-size:22px;'>{escape(r['Icon'])}</td>"
+            f"<td style='padding:10px;border:1px solid #BBB;line-height:1.55;'>{escape(r['Description'])}</td>"
+            f"</tr>"
+            for r in report_rows
+        )
+        + "</tbody></table>"
+    )
+
+    power_text = build_power_explanatory_text(diagnostics)
+
+    preview_html = format_paired_preview(paired_df).to_html(index=False, classes="data-table", border=0)
+    quality_html = paired_data_quality_summary(paired_df).to_html(classes="data-table", border=0)
+    outlier_data_html = paired_outliers_dataframe(
+        paired_df, diagnostics["Outlier_Positions"]
+    ).to_html(index=False, classes="data-table", border=0)
+    outlier_section_body = (
+        "<p class='pass'>No severe outliers detected (&gt; 3σ).</p>"
+        if not diagnostics["Outlier_Count"]
+        else f"<p class='warning'>{int(diagnostics['Outlier_Count'])} severe outlier(s) detected (&gt; 3σ).</p>{outlier_data_html}"
+    )
+
     html_content = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paired T-Test — Dashboard</title>
-    <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-        
-        :root {{
-            --color-bg-primary: #FEFEFE;
-            --color-bg-secondary: #F5F5F5;
-            --color-card: #FFFFFF;
-            --color-text-primary: #010101;
-            --color-text-secondary: #5A5A66;
-            --color-accent: #FF6135;
-            --color-success: #1A8754;
-            --color-danger: #D94A38;
-            --color-border: #D1D1D6;
-            --color-grid: #E0E0E4;
-        }}
-        
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: var(--color-bg-primary);
-            color: var(--color-text-primary);
-            line-height: 1.6;
-        }}
-        
-        .container {{
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }}
-        
-        .header {{
-            text-align: center;
-            margin-bottom: 40px;
-            border-bottom: 2px solid var(--color-border);
-            padding-bottom: 20px;
-        }}
-        
-        .dash-title {{
-            font-size: 32px;
-            font-weight: 700;
-            color: var(--color-text-primary);
-            margin-bottom: 10px;
-        }}
-        
-        .dash-subtitle {{
-            font-size: 14px;
-            color: var(--color-text-secondary);
-        }}
-        
-        .kpi-row {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            margin-bottom: 40px;
-        }}
-        
-        .kpi-card {{
-            background: var(--color-card);
-            border: 1px solid var(--color-border);
-            border-radius: 8px;
-            padding: 20px;
-            text-align: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }}
-        
-        .kpi-label {{
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--color-text-secondary);
-            margin-bottom: 8px;
-        }}
-        
-        .kpi-value {{
-            font-size: 24px;
-            font-weight: 700;
-            color: var(--color-text-primary);
-        }}
-        
-        .kpi-good {{
-            color: var(--color-success);
-        }}
-        
-        .kpi-bad {{
-            color: var(--color-danger);
-        }}
-        
-        .test-conclusion {{
-            background: var(--color-bg-secondary);
-            border-left: 4px solid var(--color-accent);
-            padding: 15px;
-            margin-bottom: 30px;
-            border-radius: 4px;
-        }}
-        
-        .test-conclusion h3 {{
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: var(--color-text-primary);
-        }}
-        
-        .test-conclusion p {{
-            font-size: 13px;
-            color: var(--color-text-secondary);
-        }}
-        
-        .hypotheses {{
-            background: var(--color-card);
-            border: 1px solid var(--color-border);
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 30px;
-            font-family: "Courier New", monospace;
-            font-size: 13px;
-        }}
-        
-        .hypotheses p {{
-            margin-bottom: 8px;
-        }}
-        
-        .hypothesis-label {{
-            font-weight: 600;
-            color: var(--color-text-primary);
-        }}
-        
-        .chart-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-            gap: 24px;
-            margin-bottom: 40px;
-        }}
-        
-        .summary-card {{
-            background: var(--color-card);
-            border: 1px solid var(--color-border);
-            border-radius: 12px;
-            padding: 28px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.08);
-            max-width: 1080px;
-            margin: 0 auto 40px;
-        }}
-        
-        .chart-card {{
-            background: var(--color-card);
-            border: 1px solid var(--color-border);
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        }}
-        
-        .chart-title {{
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 15px;
-            color: var(--color-text-primary);
-        }}
-        
-        .chart-img {{
-            width: 100%;
-            height: auto;
-            border-radius: 4px;
-        }}
-        
-        .stats-table {{
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }}
-        
-        .stats-table th {{
-            background-color: #3A3A44;
-            color: white;
-            padding: 12px;
-            text-align: left;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }}
-        
-        .stats-table td {{
-            padding: 12px;
-            border-bottom: 1px solid var(--color-border);
-            font-size: 13px;
-        }}
-        
-        .stats-table tbody tr:nth-child(odd) {{
-            background-color: var(--color-bg-secondary);
-        }}
-        
-        .stats-table tbody tr:hover {{
-            background-color: var(--color-grid);
-        }}
-        
-        .footer {{
-            text-align: center;
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 1px solid var(--color-border);
-            font-size: 12px;
-            color: var(--color-text-secondary);
-        }}
-    </style>
-</head>
-<body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <div class="dash-title">Paired T-Test Analysis</div>
-            <div class="dash-subtitle">System A vs. System B Comparison</div>
-        </div>
-        
-        <!-- Key Performance Indicators -->
-        <div class="kpi-row">
-            <div class="kpi-card">
-                <div class="kpi-label">Sample Size (N)</div>
-                <div class="kpi-value">{int(metrics['N'])}</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">Mean Difference</div>
-                <div class="kpi-value">{float(metrics['Mean_D']):+.6f}</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">T-Statistic</div>
-                <div class="kpi-value">{float(metrics['T_Value']):.4f}</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">P-Value (two-sided)</div>
-                <div class="kpi-value{'kpi-good' if not is_significant else 'kpi-bad'}">{float(metrics['P_Value']):.4f}</div>
-            </div>
-        </div>
-        
-        <!-- Test Conclusion -->
-        <div class="test-conclusion">
-            <h3>Test Conclusion (α = 0.05)</h3>
-            <p>
-                <strong>Result:</strong> 
-                {'The means are statistically significantly different (REJECT H₀).' if is_significant else 'No significant difference detected (FAIL TO REJECT H₀).'}
-            </p>
-            <p style="margin-top: 8px;">
-                <strong>Interpretation:</strong> 
-                {'System A and System B produce significantly different measurement results.' if is_significant else 'System A and System B are not statistically different.'}
-            </p>
-        </div>
-        
-        <!-- Hypotheses -->
-        <div class="hypotheses">
-            <p><span class="hypothesis-label">Null Hypothesis (H₀):</span> {metrics['H0']}</p>
-            <p><span class="hypothesis-label">Alternative Hypothesis (H₁):</span> {metrics['HA']}</p>
-            <p style="margin-top: 12px; color: var(--color-text-secondary); font-style: italic;">
-                Test: Two-sided paired t-test, df = {int(metrics['DF'])}, α = 0.05
-            </p>
-        </div>
-        
-        <!-- Summary Statistics Card -->
-        <div class="summary-card">
-            <div class="chart-title">Summary Statistics</div>
-            <img src="data:image/png;base64,{img_stats}" class="chart-img" alt="Statistics Table">
-        </div>
-        
-        <!-- Charts -->
-        <div class="chart-grid">
-            <div class="chart-card">
-                <div class="chart-title">Histogram of Differences</div>
-                <img src="data:image/png;base64,{img_histogram}" class="chart-img" alt="Histogram of Differences">
-            </div>
-            <div class="chart-card">
-                <div class="chart-title">Individual Value Plot: System A vs System B</div>
-                <img src="data:image/png;base64,{img_scatter}" class="chart-img" alt="Individual Value Plot">
-            </div>
-            <div class="chart-card">
-                <div class="chart-title">Boxplot of Differences</div>
-                <img src="data:image/png;base64,{img_boxplot}" class="chart-img" alt="Boxplot of Differences">
-            </div>
-        </div>
-        
-        <!-- Detailed Results Table -->
-        <div style="background: var(--color-card); border: 1px solid var(--color-border); border-radius: 8px; padding: 20px; margin-bottom: 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-            <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 15px; color: var(--color-text-primary);">Detailed Results</h3>
-            <table class="stats-table">
-                <thead>
-                    <tr>
-                        <th>Metric</th>
-                        <th>Value</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>Sample Size</td>
-                        <td>{int(metrics['N'])}</td>
-                    </tr>
-                    <tr>
-                        <td>System A: Mean</td>
-                        <td>{float(metrics['Mean_A']):.8f}</td>
-                    </tr>
-                    <tr>
-                        <td>System A: StDev</td>
-                        <td>{float(metrics['StDev_A']):.8f}</td>
-                    </tr>
-                    <tr>
-                        <td>System A: SE Mean</td>
-                        <td>{float(metrics['SE_A']):.8f}</td>
-                    </tr>
-                    <tr>
-                        <td>System B: Mean</td>
-                        <td>{float(metrics['Mean_B']):.8f}</td>
-                    </tr>
-                    <tr>
-                        <td>System B: StDev</td>
-                        <td>{float(metrics['StDev_B']):.8f}</td>
-                    </tr>
-                    <tr>
-                        <td>System B: SE Mean</td>
-                        <td>{float(metrics['SE_B']):.8f}</td>
-                    </tr>
-                    <tr>
-                        <td>Mean Difference (A − B)</td>
-                        <td>{float(metrics['Mean_D']):+.8f}</td>
-                    </tr>
-                    <tr>
-                        <td>StDev Difference</td>
-                        <td>{float(metrics['StDev_D']):.8f}</td>
-                    </tr>
-                    <tr>
-                        <td>SE Mean Difference</td>
-                        <td>{float(metrics['SE_D']):.8f}</td>
-                    </tr>
-                    <tr>
-                        <td>95% CI Lower</td>
-                        <td>{float(metrics['CI_Lower']):.8f}</td>
-                    </tr>
-                    <tr>
-                        <td>95% CI Upper</td>
-                        <td>{float(metrics['CI_Upper']):.8f}</td>
-                    </tr>
-                    <tr>
-                        <td>T-Statistic</td>
-                        <td>{float(metrics['T_Value']):.6f}</td>
-                    </tr>
-                    <tr>
-                        <td>Degrees of Freedom</td>
-                        <td>{int(metrics['DF'])}</td>
-                    </tr>
-                    <tr>
-                        <td>P-Value (two-sided)</td>
-                        <td>{float(metrics['P_Value']):.6f}</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-        
-        <!-- Footer -->
-        <div class="footer">
-            <p>Paired T-Test Dashboard | Statistical analysis tool | All images and data embedded in this HTML file</p>
-        </div>
-    </div>
-</body>
-</html>
-"""
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paired t Test Report</title><style>
+:root {{ --bg:#171717; --surface:#242424; --raised:#303030; --text:#F2F2F2; --muted:#B8B8B8; --border:#555555; --accent:#FF8C00; --green:#39D98A; --red:#FF6B6B; --yellow:#F5C84C; --blue:#4DA3FF; }}
+* {{ box-sizing:border-box; }} body {{ margin:0; background:var(--bg); color:var(--text); font:14px "Segoe UI",sans-serif; line-height:1.55; }}
+.page {{ max-width:1440px; margin:auto; padding:28px; }} .header {{ border-bottom:2px solid var(--border); margin-bottom:20px; padding-bottom:16px; text-align:center; }}
+h1 {{ margin:0; font-size:24px; color:var(--text); }} h2 {{ font-size:16px; margin:0 0 14px; color:var(--text); }} h3 {{ font-size:14px; margin:0 0 8px; }} .subtitle {{ color:var(--muted); font-size:14px; margin-top:4px; }} .muted {{ color:var(--muted); }}
+.grid2 {{ display:grid; gap:16px; grid-template-columns:repeat(2,minmax(0,1fr)); }}
+.card {{ background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:16px; margin-bottom:16px; }}
+.tabs {{ display:flex; gap:4px; border-bottom:1px solid var(--border); margin:22px 0 16px; }} .tab {{ border:0; border-radius:6px 6px 0 0; background:var(--raised); color:var(--text); cursor:pointer; font-weight:600; padding:10px 16px; font-size:14px; }} .tab.active {{ background:var(--accent); color:#fff; }} .panel {{ display:none; }} .panel.active {{ display:block; }}
+.chart {{ width:100%; height:auto; display:block; }} .data-table {{ width:100%; border-collapse:collapse; font-size:13px; }} .data-table th {{ background:#444; color:#fff; text-align:left; padding:8px; }} .data-table td {{ padding:8px; border-bottom:1px solid var(--border); }} .data-table tr:nth-child(even) {{ background:var(--raised); }}
+.pass {{ color:var(--green); font-weight:600; }} .warning {{ color:var(--yellow); font-weight:600; }} ul {{ margin:0; padding-left:20px; }} ul li {{ padding:2px 0; }}
+.footer-note {{ background:#303030; border-left:3px solid var(--accent); padding:10px 14px; font-size:13px; color:var(--muted); margin-top:8px; }}
+.comments-card {{ background:#2B2B2B; border:1px solid var(--border); border-radius:6px; padding:14px 18px; }}
+@media(max-width:800px) {{ .grid2 {{ grid-template-columns:1fr; }} .page {{ padding:16px; }} }}
+</style></head><body><main class="page">
+<header class="header">
+  <h1>Paired t Test for the Mean of {escape(system_a_name)} and {escape(system_b_name)}</h1>
+  <div class="subtitle">Two-sided paired t-test · α = 0.05</div>
+</header>
+<nav class="tabs"><button class="tab active" data-tab="summary">Summary Report</button><button class="tab" data-tab="diagnostic">Diagnostic Report</button><button class="tab" data-tab="card">Report Card</button></nav>
 
+<section id="summary" class="panel active">
+  <div class="grid2">
+    <article class="card"><img class="chart" src="data:image/png;base64,{images['gauge']}" alt="Do the means differ?"></article>
+    <article class="card"><img class="chart" src="data:image/png;base64,{images['stats_tables']}" alt="Statistics tables: Paired Differences and Individual Samples"></article>
+    <article class="card"><img class="chart" src="data:image/png;base64,{images['histogram_ci']}" alt="Distribution of the Differences with CI I-bar"></article>
+    <article class="card comments-card">
+      <h2>Comments</h2>
+      {comments_html}
+    </article>
+  </div>
+</section>
+
+<section id="diagnostic" class="panel">
+  <article class="card"><img class="chart" src="data:image/png;base64,{images['worksheet']}" alt="Paired data in worksheet order"></article>
+  <div class="grid2">
+    <article class="card"><img class="chart" src="data:image/png;base64,{images['pairs']}" alt="Paired measurements comparison"></article>
+    <article class="card"><img class="chart" src="data:image/png;base64,{images['run']}" alt="Differences by observation order"></article>
+  </div>
+  <article class="card"><img class="chart" src="data:image/png;base64,{images['power']}" alt="Power and detectable difference analysis"></article>
+  <article class="card">
+    <p class="muted">{escape(power_text['paragraph'])}</p>
+    <div class="footer-note">{escape(power_text['footer'])}</div>
+  </article>
+  <article class="card">
+    <h2>Severe outlier summary (&gt; 3σ)</h2>
+    {outlier_section_body}
+  </article>
+</section>
+
+<section id="card" class="panel">
+  <h1 style="font-size:20px;margin-bottom:18px;">Report Card</h1>
+  <article class="card" style="overflow-x:auto;">
+    {report_card_html}
+  </article>
+  <div class="grid2">
+    <article class="card"><h2>Uploaded paired data</h2>{preview_html}</article>
+    <article class="card"><h2>Input quality</h2>{quality_html}</article>
+  </div>
+</section>
+</main>
+<script>document.querySelectorAll('.tab').forEach(button=>button.addEventListener('click',()=>{{
+  document.querySelectorAll('.tab,.panel').forEach(item=>item.classList.remove('active'));
+  button.classList.add('active');
+  document.getElementById(button.dataset.tab).classList.add('active');
+}}));</script></body></html>"""
     if output_path is not None:
-        with open(output_path, "w", encoding="utf-8") as fh:
-            fh.write(html_content)
+        output_path.write_text(html_content, encoding="utf-8")
         print(f"Dashboard created: {output_path}")
-
     return html_content

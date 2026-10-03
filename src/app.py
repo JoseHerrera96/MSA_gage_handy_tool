@@ -18,11 +18,29 @@ from gage_tracer.data_parser import transform_raw_data, transform_gage_rr_data
 from gage_tracer.calculations import (
     calculate_gage_rr_by_characteristic,
 )
-from gage_tracer.visualization import create_dashboard, create_gage_rr_dashboard, create_gage_rr_html_dashboard
+from gage_tracer.visualization import (
+    create_dashboard,
+    create_gage_rr_dashboard,
+    create_gage_rr_html_dashboard,
+    create_gage_rr_html_zip,
+)
 from gage_tracer.paired_ttest import (
+    build_minitab_summary_comments,
+    build_power_explanatory_text,
+    build_report_card_rows,
+    calculate_paired_ttest_diagnostics,
     parse_paired_measurements,
     calculate_paired_ttest_metrics,
     create_paired_ttest_dashboard,
+)
+from gage_tracer.paired_visualization import (
+    create_histogram_ci_figure,
+    create_power_figure,
+    create_paired_slopegraph_figure,
+    create_pvalue_gauge_figure,
+    create_run_chart_figure,
+    create_stats_tables_figure,
+    create_worksheet_order_figure,
 )
 from gage_tracer.study_config import (
     GRR_DESIGN,
@@ -32,8 +50,12 @@ from gage_tracer.study_config import (
 )
 from gage_tracer.presentation import (
     build_type1_summary,
+    format_paired_preview,
     format_type1_dataframe,
     metric_status,
+    paired_data_quality_summary,
+    paired_descriptive_dataframe,
+    paired_outliers_dataframe,
     paired_summary_dataframe,
 )
 
@@ -389,7 +411,7 @@ def _render_type1_page() -> None:
 
 
 def _render_paired_page() -> None:
-    st.header("Paired T-Test Analysis")
+    st.header("Paired t Test for the Mean of Two Systems")
     with st.container():
         st.markdown("#### Step 1 — Upload paired system measurements")
         left, right = st.columns(2)
@@ -409,7 +431,21 @@ def _render_paired_page() -> None:
             buffer_a = _uploaded_to_textio(file_a)
             buffer_b = _uploaded_to_textio(file_b)
             paired_df, system_a, system_b, differences = parse_paired_measurements(buffer_a, buffer_b)
+
+            system_a_name = Path(file_a.name).stem if hasattr(file_a, "name") else "System A"
+            system_b_name = Path(file_b.name).stem if hasattr(file_b, "name") else "System B"
+            if "PAIRED DATA " in system_a_name:
+                system_a_name = system_a_name.replace("PAIRED DATA ", "")
+            if "PAIRED DATA " in system_b_name:
+                system_b_name = system_b_name.replace("PAIRED DATA ", "")
+
             metrics = calculate_paired_ttest_metrics(system_a, system_b)
+            diagnostics = calculate_paired_ttest_diagnostics(
+                system_a,
+                system_b,
+                system_a_name=system_a_name,
+                system_b_name=system_b_name,
+            )
 
     except ValueError as exc:
         st.error("Paired data must have the same number of observations.")
@@ -420,33 +456,122 @@ def _render_paired_page() -> None:
         st.warning(str(exc))
         return
 
-    p_value_status = "PASS" if metrics["P_Value"] >= 0.05 else "REJECT"
+    p_value = float(metrics["P_Value"])
+    p_value_label = f"{p_value:.6f}"
+    alpha_comparison = f"p {'<' if p_value < 0.05 else '>'} 0.05"
 
     with st.container():
         st.markdown("#### Key results")
         result_cols = st.columns(4)
-        result_cols[0].metric("N", int(metrics["N"]))
-        result_cols[1].metric("Mean Diff", f"{metrics['Mean_D']:+.6f}")
-        result_cols[2].metric("T-Statistic", f"{metrics['T_Value']:.4f}")
-        result_cols[3].metric("P-Value", f"{metrics['P_Value']:.6f}", delta=p_value_status)
+        result_cols[0].metric("Sample size", int(metrics["N"]))
+        result_cols[1].metric("Mean difference", f"{float(metrics['Mean_D']):+.6g}")
+        result_cols[2].metric("T-Statistic", f"{float(metrics['T_Value']):.4f}")
+        result_cols[3].metric("P-Value", p_value_label)
 
-    if p_value_status == "PASS":
-        st.success("The paired test does not reject the null hypothesis at α = 0.05.")
+    if p_value < 0.05:
+        st.success(
+            f"The mean of {system_a_name} is significantly different from the mean of {system_b_name} ({alpha_comparison})."
+        )
     else:
-        st.error("The paired test rejects the null hypothesis at α = 0.05.")
+        st.info(
+            f"The mean of {system_a_name} is not significantly different from the mean of {system_b_name} ({alpha_comparison})."
+        )
 
     st.divider()
 
-    with st.container():
-        st.markdown("#### Paired T-Test summary")
-        summary_df = paired_summary_dataframe(metrics)
-        st.dataframe(summary_df, use_container_width=True)
+    summary_tab, diagnostics_tab, report_card_tab = st.tabs(
+        ["Summary Report", "Diagnostic Report", "Report Card"]
+    )
 
-    st.divider()
+    with summary_tab:
+        gauge_figure = create_pvalue_gauge_figure(metrics, system_a_name=system_a_name, system_b_name=system_b_name)
+        stats_tables_figure = create_stats_tables_figure(metrics, system_a_name=system_a_name, system_b_name=system_b_name)
+        histogram_ci_figure = create_histogram_ci_figure(paired_df, metrics)
+        top_left, top_right = st.columns(2)
+        with top_left:
+            st.pyplot(gauge_figure, use_container_width=True)
+        with top_right:
+            st.pyplot(stats_tables_figure, use_container_width=True)
 
-    with st.container():
-        st.markdown("#### Uploaded paired data preview")
-        st.dataframe(paired_df, use_container_width=True)
+        bottom_left, bottom_right = st.columns(2)
+        with bottom_left:
+            st.pyplot(histogram_ci_figure, use_container_width=True)
+        with bottom_right:
+            st.markdown("#### Comments")
+            comments = build_minitab_summary_comments(metrics)
+            for comment in comments:
+                body = comment["body"]
+                heading = comment["heading"]
+                if body.startswith(f"{heading}:"):
+                    body_text = body[len(heading) + 1:].lstrip()
+                elif body.startswith(f"{heading} "):
+                    body_text = body[len(heading) + 1:].lstrip()
+                else:
+                    body_text = body
+                st.markdown(f"**{heading}:** {body_text}")
+
+    with diagnostics_tab:
+        outlier_positions = list(diagnostics["Outlier_Positions"])
+        worksheet_figure = create_worksheet_order_figure(
+            paired_df, outlier_positions, system_a_name=system_a_name, system_b_name=system_b_name
+        )
+        slopegraph_figure = create_paired_slopegraph_figure(
+            paired_df, metrics, system_a_name=system_a_name, system_b_name=system_b_name
+        )
+        run_figure = create_run_chart_figure(paired_df, metrics)
+        power_figure = create_power_figure(diagnostics, metrics)
+
+        st.pyplot(worksheet_figure, use_container_width=True)
+        diag_left, diag_right = st.columns(2)
+        with diag_left:
+            st.pyplot(slopegraph_figure, use_container_width=True)
+        with diag_right:
+            st.pyplot(run_figure, use_container_width=True)
+        st.pyplot(power_figure, use_container_width=True)
+
+        power_text = build_power_explanatory_text(diagnostics)
+        st.caption(power_text["paragraph"])
+        st.info(power_text["footer"])
+
+        with st.container():
+            st.markdown("#### Severe outlier summary (> 3σ)")
+            if diagnostics["Outlier_Count"]:
+                st.warning(f"{int(diagnostics['Outlier_Count'])} severe outlier(s) detected (> 3σ).")
+                st.dataframe(
+                    paired_outliers_dataframe(paired_df, diagnostics["Outlier_Positions"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.success("No severe outliers detected (> 3σ).")
+
+    with report_card_tab:
+        st.markdown("#### Report Card")
+        report_rows = build_report_card_rows(metrics, diagnostics)
+        report_df = pd.DataFrame(
+            {
+                "Check": [r["Check"] for r in report_rows],
+                "Status": [r["Icon"] for r in report_rows],
+                "Description": [r["Description"] for r in report_rows],
+            }
+        )
+        st.dataframe(
+            report_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Status": st.column_config.TextColumn("Status", width="small"),
+            },
+        )
+
+        st.divider()
+        preview_left, preview_right = st.columns([2, 1])
+        with preview_left:
+            st.markdown("#### Uploaded paired data")
+            st.dataframe(format_paired_preview(paired_df), use_container_width=True, hide_index=True)
+        with preview_right:
+            st.markdown("#### Input quality")
+            st.dataframe(paired_data_quality_summary(paired_df), use_container_width=True)
 
     st.divider()
 
@@ -464,7 +589,13 @@ def _render_paired_page() -> None:
 
     with st.container():
         st.markdown("#### Export dashboard")
-        html = create_paired_ttest_dashboard(paired_df, metrics, output_path=None)
+        html = create_paired_ttest_dashboard(
+            paired_df,
+            metrics,
+            output_path=None,
+            system_a_name=system_a_name,
+            system_b_name=system_b_name,
+        )
         st.download_button(
             label="Download Paired T-Test Dashboard HTML",
             data=html,
@@ -485,7 +616,16 @@ def _render_gage_rr_page() -> None:
         )
         st.caption(
             "Input layout is detected automatically: BEGIN/END blocks or continuous "
-            "part-tagged measurements. Headers and footers are ignored."
+            "part-tagged measurements. Headers and footers are ignored. For untagged "
+            "reports, the sequence order determines the Part/Operator/Trial assignment."
+        )
+        report_order_label = st.selectbox(
+            "Untagged report sequence",
+            options=("Part → Operator → Trial", "Operator → Part → Trial"),
+            help="Choose the nesting order used when the report blocks do not identify the study factors.",
+        )
+        report_order = (
+            "part-major" if report_order_label.startswith("Part") else "operator-major"
         )
         uploaded = st.file_uploader("Upload GAGE RR DATA.txt", type=["txt"], key="grr_raw")
 
@@ -501,6 +641,7 @@ def _render_gage_rr_page() -> None:
                 buffer,
                 output_file=None,
                 input_format="auto",
+                report_order=report_order,
             )
             all_results = calculate_gage_rr_by_characteristic(df)
 
@@ -615,11 +756,19 @@ def _render_gage_rr_page() -> None:
     with st.container():
         st.markdown("#### Export dashboard")
         html = create_gage_rr_html_dashboard(characteristic_df, results, output_path=None)
-        st.download_button(
+        download_cols = st.columns(2)
+        download_cols[0].download_button(
             label="Download Gage R&R Dashboard HTML",
             data=html,
             file_name=f"Gage_RR_{characteristic}_Dashboard.html",
             mime="text/html",
+        )
+        download_cols[1].download_button(
+            label="Download all reports (.zip)",
+            data=lambda: create_gage_rr_html_zip(df, all_results),
+            file_name="Gage_RR_HTML_Reports.zip",
+            mime="application/zip",
+            icon=":material/archive:",
         )
 
 

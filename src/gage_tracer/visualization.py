@@ -7,6 +7,7 @@ and the self-contained HTML dashboard with embedded base-64 images.
 from __future__ import annotations
 
 import math
+import zipfile
 from io import BytesIO
 from html import escape
 from pathlib import Path
@@ -1086,3 +1087,27 @@ def create_gage_rr_html_dashboard(
         print(f"Gage R&R Dashboard HTML created: {output_path}")
 
     return html
+
+
+def create_gage_rr_html_zip(
+    df: pd.DataFrame,
+    results_by_characteristic: dict[str, dict[str, Any]],
+) -> bytes:
+    """Generate a ZIP archive containing one HTML report per characteristic."""
+    archive_buffer = BytesIO()
+    with zipfile.ZipFile(
+        archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED
+    ) as archive:
+        for index, (characteristic, results) in enumerate(
+            results_by_characteristic.items(), start=1
+        ):
+            characteristic_df = df[df["Characteristic"] == characteristic]
+            html = create_gage_rr_html_dashboard(characteristic_df, results)
+            safe_characteristic = "".join(
+                char if char.isalnum() or char in "-_" else "_"
+                for char in characteristic
+            ).strip("_") or "characteristic"
+            filename = f"{index:03d}_Gage_RR_{safe_characteristic}_Dashboard.html"
+            archive.writestr(filename, html)
+
+    return archive_buffer.getvalue()
