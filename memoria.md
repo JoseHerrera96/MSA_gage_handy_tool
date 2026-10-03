@@ -1,7 +1,7 @@
 # Memoria del proyecto
 
 > Archivo local de contexto para agentes de AI. No debe versionarse ni subirse al repositorio.
-> Última actualización: 2026-09-14.
+> Última actualización: 2026-10-02.
 
 ## Estado actual
 
@@ -22,6 +22,8 @@
     2. Un bloque o flujo continuo con 90 mediciones de una dimensión y tags `C20_A001...C20_A010`.
   - Los headers y footers son ignorados en filas no válidas.
   - El diseño GRR está fijo: 10 partes × 3 operadores × 3 repeticiones = 90 reportes.
+  - Para reportes sin tags de parte, `report_order` define el mapeo secuencial: `part-major` (default, Parte → Operador → Ensayo) u `operator-major` (Operador → Parte → Ensayo).
+  - Reparación de entradas fusionadas: separa `END"":BEGIN` en dos marcadores y elimina el prefijo ASCII `0x1A` antes de `:BEGIN`.
 
 - `src/gage_tracer/calculations.py`
   - Funciones estadísticas puras.
@@ -53,6 +55,7 @@
     5. Xbar Chart by Operator
     6. Part × Operator Interaction
   - El boxplot usa `positions` + `set_xticks` por compatibilidad de matplotlib; no volver a usar `labels=`.
+  - `create_gage_rr_html_zip` crea un ZIP con un HTML independiente por característica y nombres de archivo seguros.
 
 - `src/gage_tracer/paired_ttest.py`
   - Parser de dos archivos numéricos.
@@ -73,6 +76,7 @@
   - UI con modo dark/light.
   - Acentos de botones: `#FF8C00`.
   - Superficies de carga/tablas/alertas usan grises definidos por variables CSS.
+  - Gage R&R permite seleccionar el orden de reportes sin tags y descargar todos los dashboards HTML en un ZIP; el ZIP se crea bajo demanda.
 
 ## Reglas Gage R&R importantes
 
@@ -82,7 +86,8 @@
   - 3 repeticiones
   - 90 reportes/mediciones
 - Streamlit usa siempre `input_format="auto"`; no pedir selección manual al usuario.
-- CLI conserva `--input-format` como respaldo: `auto`, `blocks`, `continuous`.
+- Para bloques sin etiquetas de parte, el orden real debe conocerse: default `part-major`; la UI y CLI permiten `operator-major` si corresponde a la secuencia de captura.
+- CLI conserva `--input-format` como respaldo: `auto`, `blocks`, `continuous`; también acepta `--report-order part-major|operator-major`.
 - Archivos como `C20_RAW.txt`:
   - Un solo `BEGIN/END`.
   - 90 filas.
@@ -112,6 +117,11 @@
   - El HTML descargable mantiene paridad con el preview y embebe siete gráficos.
   - Las tablas y textos de los gráficos Paired T fueron ajustados para dark mode.
   - La tabla Difference/Power usa texto `#F2F2F2` para contraste.
+- Comparación Minitab vs. código para `merged.txt` / `C20_A001`:
+  - La secuencia real es part-major. El mapeo anterior operator-major generaba 79.9031% GRR Study Var y NDC=1; con part-major coincide con Minitab: GRR Study Var=19.6114%, NDC=7, Parte F=226.006 y Operador F=0.713 (P=0.494).
+  - `merged.txt` tenía 90 reportes, pero dos inicios no eran reconocidos por marcadores fusionados/ASCII `0x1A`; el parser ahora recupera los 90 sin editar el archivo original.
+  - El HTML comparativo `Gage_RR_C20_A001_Dashboard (1).html` fue regenerado con el orden correcto.
+- Exportación de todos los reportes GRR: botón Streamlit `Download all reports (.zip)`; probado con ZIP válido y HTML embebido.
 
 ## Validaciones actuales
 
@@ -124,6 +134,11 @@
   - Type 1 con `RAW DATA.txt`
   - Paired T-Test con datos simples
   - Gage R&R con `C20_RAW.txt` y simulación de 90 bloques
+  - `tests/test_modular_domain.py`: 13 pruebas pasan tras los cambios de orden, reparación de marcadores y ZIP.
+  - `python -m compileall -q src cli streamlit_app.py tests` pasa.
+  - Prueba directa de `merged.txt`: 90 reportes y métricas de `C20_A001` coinciden con Minitab.
+  - ZIP real de `C20_A001` abre y contiene el dashboard HTML esperado.
+  - La suite `unittest discover` completa no es limpia: `test_calculations.py` y `test_tolerances.py` buscan `gage data.txt`, que no existe. `test_gage_rr_minitab_structure.py` y `test_paired_ttest_example.py` son funciones pytest-style y se validaron invocándolas directamente.
 
 ## Riesgos y pendientes
 
@@ -135,6 +150,7 @@
 - Los tests existentes `test_calculations.py` y `test_tolerances.py` son scripts de inspección, no pruebas unitarias robustas.
 - `pytest` no está instalado en `.venv`; las pruebas principales actuales usan `unittest`.
 - El HTML generado previamente puede contener resultados antiguos; regenerar dashboards después de cambios.
+- No se puede inferir el orden de factores para reportes sin tags solo a partir de sus mediciones; seleccionar el orden de recolección correcto es requisito estadístico.
 
 ## Datos y archivos relevantes
 
@@ -147,6 +163,8 @@
   - Referencia crítica para formato de una dimensión.
 - `Gage_RR_C20_minitab.htm`
   - Referencia externa de Minitab para comparar resultados.
+- `merged.txt` y `minitab GRR prueba C20_A001.pdf`
+  - Fixture de comparación GRR. No editar `merged.txt` para corregir sus marcadores: el parser los normaliza en memoria.
 - `paired_ttest/docs/paired_t_summary.png`
   - Referencia visual del Summary Report de Minitab Assistant.
 - `paired_ttest/docs/Paired_t_diagnostic.png`
@@ -164,3 +182,8 @@
   - UI adaptada a modo claro/oscuro.
   - Ingeniería modular y estándares de software.
 - Pidió explícitamente que `memoria.md` no se suba al repositorio.
+
+## Sesión de desarrollo
+
+- Streamlit actualizado corriendo en `http://localhost:8502`; el puerto 8501 estaba ocupado por una instancia previa.
+- Mantener `memoria.md` local y fuera de commits.

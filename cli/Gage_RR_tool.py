@@ -129,7 +129,7 @@ def _file_stem(characteristic: str) -> str:
     return "".join(char if char.isalnum() or char in "-_" else "_" for char in characteristic)
 
 
-def run(input_format: str = "auto") -> None:
+def run(input_format: str = "auto", report_order: str = "part-major") -> None:
     """Run the full multireport Gage R&R pipeline.
 
     Steps:
@@ -175,6 +175,7 @@ def run(input_format: str = "auto") -> None:
                 raw_path,
                 GRR_DATA_FILE,
                 input_format=input_format,
+                report_order=report_order,
             )
         except ValueError as e:
             print(f"ERROR: {e}")
@@ -228,5 +229,14 @@ if __name__ == "__main__":
         default="auto",
         help="Input layout: BEGIN/END blocks, continuous repeated rows, or auto-detect.",
     )
+    parser.add_argument(
+        "--report-order",
+        choices=("part-major", "operator-major"),
+        default="part-major",
+        help=(
+            "Factor nesting for untagged reports: Part -> Operator -> Trial "
+            "(default) or Operator -> Part -> Trial."
+        ),
+    )
     args = parser.parse_args()
-    run(input_format=args.input_format)
+    run(input_format=args.input_format, report_order=args.report_order)

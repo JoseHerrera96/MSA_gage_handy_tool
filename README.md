@@ -121,6 +121,17 @@ $$\text{reports} = \text{operators} \times \text{parts} \times \text{trials}$$
 
 Each characteristic in a report receives an independent Gage R&R analysis and its own report/dashboard pair.
 
+For untagged report blocks, the order of the 90 reports determines the Part,
+Operator, and Trial labels. The default is `part-major`
+(`Part → Operator → Trial`); select `operator-major`
+(`Operator → Part → Trial`) when that matches the collection sequence:
+
+```bash
+python cli/Gage_RR_tool.py --report-order operator-major
+```
+
+The Streamlit workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags.
+
 ## Notes
 
 - This repo is intended for clean, production-like presentation.

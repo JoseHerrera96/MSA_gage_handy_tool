@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import sys
 import unittest
-from io import StringIO
+import zipfile
+from io import BytesIO, StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -23,6 +25,7 @@ from gage_tracer.presentation import (
     paired_descriptive_dataframe,
 )
 from gage_tracer.study_config import GRR_DESIGN, classify_gage_rr
+from gage_tracer.visualization import create_gage_rr_html_zip
 
 
 def _measurement_row(tag: str, value: float = 1.0) -> str:
@@ -44,6 +47,78 @@ class StudyConfigTests(unittest.TestCase):
 
 
 class GageRRParserTests(unittest.TestCase):
+    def test_untagged_reports_use_part_operator_trial_order_by_default(self) -> None:
+        data = "\n".join(
+            f":BEGIN\n{_measurement_row('C20_A001', report_number)}\n:END"
+            for report_number in range(GRR_DESIGN.report_blocks)
+        )
+        frame = transform_gage_rr_data(StringIO(data))
+
+        expected = {
+            1: ("Part_1", "Operator_1", 1),
+            3: ("Part_1", "Operator_1", 3),
+            4: ("Part_1", "Operator_2", 1),
+            10: ("Part_2", "Operator_1", 1),
+            90: ("Part_10", "Operator_3", 3),
+        }
+        for report, factors in expected.items():
+            row = frame.loc[frame["Report"] == report].iloc[0]
+            self.assertEqual((row["Part"], row["Operator"], row["Trial"]), factors)
+
+    def test_untagged_reports_can_use_operator_major_order(self) -> None:
+        data = "\n".join(
+            f":BEGIN\n{_measurement_row('C20_A001', report_number)}\n:END"
+            for report_number in range(GRR_DESIGN.report_blocks)
+        )
+        frame = transform_gage_rr_data(StringIO(data), report_order="operator-major")
+
+        expected = {
+            1: ("Part_1", "Operator_1", 1),
+            4: ("Part_2", "Operator_1", 1),
+            31: ("Part_1", "Operator_2", 1),
+            90: ("Part_10", "Operator_3", 3),
+        }
+        for report, factors in expected.items():
+            row = frame.loc[frame["Report"] == report].iloc[0]
+            self.assertEqual((row["Part"], row["Operator"], row["Trial"]), factors)
+
+    def test_parser_recovers_joined_and_control_prefixed_markers(self) -> None:
+        data = "\n".join(
+            f'":BEGIN"\n{_measurement_row("C20_A001", report_number)}\n":END"'
+            for report_number in range(GRR_DESIGN.report_blocks)
+        )
+        data = data.replace('":END"\n":BEGIN"', '":END"":BEGIN"', 1)
+        data = data.replace('":END"\n":BEGIN"', '":END"\n\x1a":BEGIN"', 1)
+
+        frame = transform_gage_rr_data(StringIO(data))
+
+        self.assertEqual(frame["Report"].nunique(), GRR_DESIGN.report_blocks)
+        self.assertEqual(len(frame), GRR_DESIGN.report_blocks)
+
+    def test_html_reports_are_zipped_with_safe_unique_names(self) -> None:
+        data = "\n".join(
+            f"BEGIN\n{_measurement_row('C20/A001', report_number)}\n"
+            f"{_measurement_row('C20_A001', report_number)}\nEND"
+            for report_number in range(GRR_DESIGN.report_blocks)
+        )
+        frame = transform_gage_rr_data(StringIO(data))
+        results = {"C20/A001": {}, "C20_A001": {}}
+
+        with patch(
+            "gage_tracer.visualization.create_gage_rr_html_dashboard",
+            side_effect=lambda report_df, _: f"<html>{report_df['Characteristic'].iloc[0]}</html>",
+        ):
+            archive_bytes = create_gage_rr_html_zip(frame, results)
+
+        with zipfile.ZipFile(BytesIO(archive_bytes)) as archive:
+            names = archive.namelist()
+            self.assertEqual(len(names), 2)
+            self.assertNotEqual(names[0], names[1])
+            self.assertEqual(
+                [archive.read(name).decode("utf-8") for name in names],
+                ["<html>C20/A001</html>", "<html>C20_A001</html>"],
+            )
+
     def test_part_tagged_single_dimension_layout(self) -> None:
         rows = []
         for round_number in range(9):

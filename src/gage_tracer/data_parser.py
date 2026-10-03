@@ -439,7 +439,10 @@ def _parse_gage_rr_raw_data(
     """Parse GRR data as explicit blocks or consecutive repeated rows."""
     if input_format not in {"auto", "blocks", "continuous"}:
         raise ValueError("input_format must be 'auto', 'blocks', or 'continuous'.")
-    lines = [line.strip() for line in _open_text_input(input_file)]
+    with _open_text_input(input_file) as fh:
+        raw_text = fh.read()
+    raw_text = raw_text.replace('END"":BEGIN', 'END"\n":BEGIN')
+    lines = [line.lstrip("\x1a").strip() for line in raw_text.splitlines()]
     has_markers = any(
         _is_gage_rr_marker(line, ":BEGIN") or _is_gage_rr_marker(line, ":END")
         for line in lines
@@ -451,19 +454,26 @@ def _parse_gage_rr_raw_data(
 
 def _build_gage_rr_dataframe(
     records: list[dict[str, object]],
+    report_order: str = "part-major",
 ) -> pd.DataFrame:
     """Build structured DataFrame for Gage R&R Crossed analysis.
 
-    Assigns operators, parts, and trials to complete report blocks. Every
-    characteristic therefore receives an independent, balanced crossed study.
+    Assigns operators, parts, and trials to complete report blocks. For reports
+    without part tags, ``report_order`` defines how sequential blocks map to
+    the crossed design. Every characteristic receives the same assignment.
 
     Args:
         records: Parsed measurement records, including a report number.
+        report_order: ``part-major`` (Part, Operator, Trial) or
+            ``operator-major`` (Operator, Part, Trial) sequence.
 
     Returns:
         DataFrame with Part, Operator, Trial, Characteristic, Measurement, and
         characteristic-specific tolerance columns.
     """
+    if report_order not in {"part-major", "operator-major"}:
+        raise ValueError("report_order must be 'part-major' or 'operator-major'.")
+
     report_numbers = sorted({int(record["Report"]) for record in records})
     total_reports = len(report_numbers)
     if total_reports != GRR_DESIGN.report_blocks:
@@ -495,9 +505,22 @@ def _build_gage_rr_dataframe(
             operator_num = round_number // GRR_DESIGN.trials_per_part + 1
         else:
             trial_num = report_position % GRR_DESIGN.trials_per_part + 1
-            part_operator_position = report_position // GRR_DESIGN.trials_per_part
-            operator_num = part_operator_position // num_parts + 1
-            part_num = part_operator_position % num_parts + 1
+            if report_order == "part-major":
+                part_num = (
+                    report_position
+                    // (GRR_DESIGN.operators * GRR_DESIGN.trials_per_part)
+                    + 1
+                )
+                operator_num = (
+                    report_position // GRR_DESIGN.trials_per_part
+                ) % GRR_DESIGN.operators + 1
+            else:
+                operator_num = (
+                    report_position // (num_parts * GRR_DESIGN.trials_per_part) + 1
+                )
+                part_num = (
+                    report_position // GRR_DESIGN.trials_per_part
+                ) % num_parts + 1
         upper_tol = float(record["Upper Tol"])
         lower_tol = float(record["Lower Tol"])
         data.append(
@@ -522,6 +545,7 @@ def transform_gage_rr_data(
     input_file: _InputSource,
     output_file: Path | None = None,
     input_format: str = "auto",
+    report_order: str = "part-major",
 ) -> pd.DataFrame:
     """Convert raw Gage R&R Crossed data into structured TSV format.
 
@@ -534,6 +558,8 @@ def transform_gage_rr_data(
         output_file: Where to write resulting TSV, or ``None`` to skip.
         input_format: ``auto``, ``blocks`` for BEGIN/END reports, or
             ``continuous`` for repeated measurements without separators.
+        report_order: Assignment order for untagged reports: ``part-major``
+            (Part, Operator, Trial) or ``operator-major`` (Operator, Part, Trial).
     Returns:
         Structured DataFrame with columns: Part, Operator, Trial, Measurement,
         Nominal, Upper Tol, Lower Tol, Tolerance.
@@ -543,7 +569,7 @@ def transform_gage_rr_data(
                     tolerance information is missing.
     """
     records = _parse_gage_rr_raw_data(input_file, input_format=input_format)
-    df = _build_gage_rr_dataframe(records)
+    df = _build_gage_rr_dataframe(records, report_order=report_order)
 
     if output_file is not None:
         df.to_csv(output_file, sep="\t", index=False)

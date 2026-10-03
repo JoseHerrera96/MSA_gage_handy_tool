@@ -18,7 +18,12 @@ from gage_tracer.data_parser import transform_raw_data, transform_gage_rr_data
 from gage_tracer.calculations import (
     calculate_gage_rr_by_characteristic,
 )
-from gage_tracer.visualization import create_dashboard, create_gage_rr_dashboard, create_gage_rr_html_dashboard
+from gage_tracer.visualization import (
+    create_dashboard,
+    create_gage_rr_dashboard,
+    create_gage_rr_html_dashboard,
+    create_gage_rr_html_zip,
+)
 from gage_tracer.paired_ttest import (
     build_minitab_summary_comments,
     build_power_explanatory_text,
@@ -611,7 +616,16 @@ def _render_gage_rr_page() -> None:
         )
         st.caption(
             "Input layout is detected automatically: BEGIN/END blocks or continuous "
-            "part-tagged measurements. Headers and footers are ignored."
+            "part-tagged measurements. Headers and footers are ignored. For untagged "
+            "reports, the sequence order determines the Part/Operator/Trial assignment."
+        )
+        report_order_label = st.selectbox(
+            "Untagged report sequence",
+            options=("Part → Operator → Trial", "Operator → Part → Trial"),
+            help="Choose the nesting order used when the report blocks do not identify the study factors.",
+        )
+        report_order = (
+            "part-major" if report_order_label.startswith("Part") else "operator-major"
         )
         uploaded = st.file_uploader("Upload GAGE RR DATA.txt", type=["txt"], key="grr_raw")
 
@@ -627,6 +641,7 @@ def _render_gage_rr_page() -> None:
                 buffer,
                 output_file=None,
                 input_format="auto",
+                report_order=report_order,
             )
             all_results = calculate_gage_rr_by_characteristic(df)
 
@@ -741,11 +756,19 @@ def _render_gage_rr_page() -> None:
     with st.container():
         st.markdown("#### Export dashboard")
         html = create_gage_rr_html_dashboard(characteristic_df, results, output_path=None)
-        st.download_button(
+        download_cols = st.columns(2)
+        download_cols[0].download_button(
             label="Download Gage R&R Dashboard HTML",
             data=html,
             file_name=f"Gage_RR_{characteristic}_Dashboard.html",
             mime="text/html",
+        )
+        download_cols[1].download_button(
+            label="Download all reports (.zip)",
+            data=lambda: create_gage_rr_html_zip(df, all_results),
+            file_name="Gage_RR_HTML_Reports.zip",
+            mime="application/zip",
+            icon=":material/archive:",
         )
 
 
