@@ -132,6 +132,8 @@ python cli/Gage_RR_tool.py --report-order operator-major
 
 The Streamlit workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags.
 
+After processing, the Gage R&R workflow opens with a study overview that summarizes the verdict, variation components, NDC, and interaction result for every characteristic. Download the overview on its own or as the first HTML file in the all-reports ZIP.
+
 ## Notes
 
 - This repo is intended for clean, production-like presentation.

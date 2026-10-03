@@ -1089,6 +1089,110 @@ def create_gage_rr_html_dashboard(
     return html
 
 
+def build_gage_rr_overview_dataframe(
+    results_by_characteristic: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
+    """Build a cross-characteristic summary table for a Gage R&R study."""
+    rows: list[dict[str, Any]] = []
+    for characteristic, results in results_by_characteristic.items():
+        evaluation = results["gage_evaluation"].set_index("Source")
+
+        def percentage(source: str, column: str) -> float:
+            value = evaluation.at[source, column]
+            return float(str(value).rstrip("%"))
+
+        grr_percent = float(results["total_grr_pct"])
+        ndc = int(results["ndc"])
+        rows.append(
+            {
+                "Characteristic": characteristic,
+                "Verdict": classify_gage_rr(grr_percent, ndc),
+                "Total Gage R&R (% Study Var)": grr_percent,
+                "% Tolerance": percentage("Total Gage R&R", "%Tolerance"),
+                "Repeatability (% Study Var)": percentage("Repeatability", "%Study Var"),
+                "Reproducibility (% Study Var)": percentage("Reproducibility", "%Study Var"),
+                "Part-to-Part (% Study Var)": percentage("Part-to-Part", "%Study Var"),
+                "NDC": ndc,
+                "Interaction P-value": float(results["interaction_p_value"]),
+                "Interaction Pooled": bool(results["pooled_interaction"]),
+            }
+        )
+
+    return pd.DataFrame(rows).sort_values(
+        "Total Gage R&R (% Study Var)", ascending=False, ignore_index=True
+    )
+
+
+def create_gage_rr_html_overview(
+    df: pd.DataFrame,
+    results_by_characteristic: dict[str, dict[str, Any]],
+    output_path: Path | None = None,
+) -> str:
+    """Generate a self-contained overview dashboard for every study characteristic."""
+    import time
+
+    from .study_config import GRR_DESIGN
+
+    summary = build_gage_rr_overview_dataframe(results_by_characteristic)
+    verdict_counts = summary["Verdict"].value_counts()
+    passed = int(verdict_counts.get("PASS", 0))
+    marginal = int(verdict_counts.get("MARGINAL", 0))
+    failed = int(verdict_counts.get("FAIL", 0))
+    summary_html = summary.to_html(
+        index=False,
+        classes="stats-table",
+        formatters={
+            "Total Gage R&R (% Study Var)": "{:.2f}%".format,
+            "% Tolerance": "{:.2f}%".format,
+            "Repeatability (% Study Var)": "{:.2f}%".format,
+            "Reproducibility (% Study Var)": "{:.2f}%".format,
+            "Part-to-Part (% Study Var)": "{:.2f}%".format,
+            "Interaction P-value": "{:.4f}".format,
+        },
+        escape=True,
+    )
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gage R&amp;R Study Overview</title>
+<style>
+{_CSS_TEMPLATE}
+.stats-table {{ width:100%; border-collapse:collapse; font-size:12px; }}
+.stats-table th, .stats-table td {{ padding:9px 11px; text-align:left; border-bottom:1px solid var(--color-border-subtle); }}
+.stats-table th {{ background:var(--color-bg-elevated); text-transform:uppercase; font-size:10px; }}
+.stats-table td {{ font-family:var(--font-mono); }}
+.overview-meta {{ color:var(--color-text-secondary); margin:0 0 16px; }}
+.overview-table {{ overflow-x:auto; }}
+</style>
+</head>
+<body>
+<div class="dash-header">
+  <h1 class="dash-title"><em>Gage R&amp;R</em> Study Overview</h1>
+  <span class="dash-date">{timestamp}</span>
+</div>
+<p class="overview-meta">Crossed study · {GRR_DESIGN.parts} parts × {GRR_DESIGN.operators} operators × {GRR_DESIGN.trials_per_part} trials · {df['Report'].nunique()} reports · {len(results_by_characteristic)} characteristics</p>
+<div class="kpi-row">
+  <div class="kpi-card kpi-secondary"><div class="kpi-label">Characteristics</div><div class="kpi-value">{len(results_by_characteristic)}</div></div>
+  <div class="kpi-card kpi-secondary"><div class="kpi-label">Pass</div><div class="kpi-value">{passed}</div></div>
+  <div class="kpi-card kpi-secondary"><div class="kpi-label">Marginal</div><div class="kpi-value">{marginal}</div></div>
+  <div class="kpi-card kpi-secondary"><div class="kpi-label">Fail</div><div class="kpi-value">{failed}</div></div>
+</div>
+<section class="section-card">
+  <h2 class="section-title">Results by Characteristic</h2>
+  <div class="overview-table">{summary_html}</div>
+</section>
+</body>
+</html>"""
+
+    if output_path is not None:
+        output_path.write_text(html, encoding="utf-8")
+    return html
+
+
 def create_gage_rr_html_zip(
     df: pd.DataFrame,
     results_by_characteristic: dict[str, dict[str, Any]],
@@ -1098,6 +1202,8 @@ def create_gage_rr_html_zip(
     with zipfile.ZipFile(
         archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED
     ) as archive:
+        overview_html = create_gage_rr_html_overview(df, results_by_characteristic)
+        archive.writestr("000_Gage_RR_Study_Overview.html", overview_html)
         for index, (characteristic, results) in enumerate(
             results_by_characteristic.items(), start=1
         ):

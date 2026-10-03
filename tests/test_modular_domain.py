@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import pandas as pd
 
 from gage_tracer.data_parser import transform_gage_rr_data
+from gage_tracer.calculations import calculate_gage_rr_by_characteristic
 from gage_tracer.paired_ttest import (
     calculate_paired_ttest_diagnostics,
     calculate_paired_ttest_metrics,
@@ -25,7 +26,11 @@ from gage_tracer.presentation import (
     paired_descriptive_dataframe,
 )
 from gage_tracer.study_config import GRR_DESIGN, classify_gage_rr
-from gage_tracer.visualization import create_gage_rr_html_zip
+from gage_tracer.visualization import (
+    build_gage_rr_overview_dataframe,
+    create_gage_rr_html_overview,
+    create_gage_rr_html_zip,
+)
 
 
 def _measurement_row(tag: str, value: float = 1.0) -> str:
@@ -102,22 +107,29 @@ class GageRRParserTests(unittest.TestCase):
             for report_number in range(GRR_DESIGN.report_blocks)
         )
         frame = transform_gage_rr_data(StringIO(data))
-        results = {"C20/A001": {}, "C20_A001": {}}
+        results = calculate_gage_rr_by_characteristic(frame)
+        overview = build_gage_rr_overview_dataframe(results)
 
         with patch(
             "gage_tracer.visualization.create_gage_rr_html_dashboard",
             side_effect=lambda report_df, _: f"<html>{report_df['Characteristic'].iloc[0]}</html>",
         ):
+            overview_html = create_gage_rr_html_overview(frame, results)
             archive_bytes = create_gage_rr_html_zip(frame, results)
 
+        self.assertEqual(overview.iloc[0]["Total Gage R&R (% Study Var)"], overview["Total Gage R&R (% Study Var)"].max())
+        self.assertIn("Results by Characteristic", overview_html)
+        self.assertIn("C20/A001", overview_html)
         with zipfile.ZipFile(BytesIO(archive_bytes)) as archive:
             names = archive.namelist()
-            self.assertEqual(len(names), 2)
-            self.assertNotEqual(names[0], names[1])
+            self.assertEqual(len(names), 3)
+            self.assertEqual(names[0], "000_Gage_RR_Study_Overview.html")
+            self.assertNotEqual(names[1], names[2])
             self.assertEqual(
-                [archive.read(name).decode("utf-8") for name in names],
+                [archive.read(name).decode("utf-8") for name in names[1:]],
                 ["<html>C20/A001</html>", "<html>C20_A001</html>"],
             )
+            self.assertIn("Gage R&amp;R Study Overview", archive.read(names[0]).decode("utf-8"))
 
     def test_part_tagged_single_dimension_layout(self) -> None:
         rows = []

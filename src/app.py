@@ -19,9 +19,11 @@ from gage_tracer.calculations import (
     calculate_gage_rr_by_characteristic,
 )
 from gage_tracer.visualization import (
+    build_gage_rr_overview_dataframe,
     create_dashboard,
     create_gage_rr_dashboard,
     create_gage_rr_html_dashboard,
+    create_gage_rr_html_overview,
     create_gage_rr_html_zip,
 )
 from gage_tracer.paired_ttest import (
@@ -654,10 +656,51 @@ def _render_gage_rr_page() -> None:
         st.warning(str(exc))
         return
 
-    characteristic = st.selectbox(
-        "Characteristic report",
-        options=list(all_results),
+    overview_label = "Study Overview"
+    report_choice = st.selectbox(
+        "Gage R&R report",
+        options=[overview_label, *all_results],
+        key=f"grr_report_{uploaded.file_id}",
     )
+
+    if report_choice == overview_label:
+        summary = build_gage_rr_overview_dataframe(all_results)
+        counts = summary["Verdict"].value_counts()
+        overview_cols = st.columns(4)
+        overview_cols[0].metric("Characteristics", len(summary))
+        overview_cols[1].metric("Pass", int(counts.get("PASS", 0)))
+        overview_cols[2].metric("Marginal", int(counts.get("MARGINAL", 0)))
+        overview_cols[3].metric("Fail", int(counts.get("FAIL", 0)))
+        st.caption(
+            f"Study design: {GRR_DESIGN.parts} parts × {GRR_DESIGN.operators} operators × "
+            f"{GRR_DESIGN.trials_per_part} trials · {df['Report'].nunique()} reports"
+        )
+        st.dataframe(summary, use_container_width=True, hide_index=True)
+
+        with st.container():
+            st.markdown("#### Export overview")
+            overview_html = create_gage_rr_html_overview(df, all_results)
+            download_cols = st.columns(2)
+            download_cols[0].download_button(
+                label="Download study overview HTML",
+                data=overview_html,
+                file_name="Gage_RR_Study_Overview.html",
+                mime="text/html",
+            )
+            download_cols[1].download_button(
+                label="Download all reports (.zip)",
+                data=lambda: create_gage_rr_html_zip(df, all_results),
+                file_name="Gage_RR_HTML_Reports.zip",
+                mime="application/zip",
+                icon=":material/archive:",
+            )
+            st.caption(
+                "The ZIP is built on demand and may take about a minute for a full study. "
+                "Keep this page open until the download starts."
+            )
+        return
+
+    characteristic = report_choice
     results = all_results[characteristic]
     characteristic_df = df[df["Characteristic"] == characteristic]
     st.subheader(f"Report: {characteristic}")
@@ -769,6 +812,10 @@ def _render_gage_rr_page() -> None:
             file_name="Gage_RR_HTML_Reports.zip",
             mime="application/zip",
             icon=":material/archive:",
+        )
+        st.caption(
+            "The ZIP is built on demand and may take about a minute for a full study. "
+            "Keep this page open until the download starts."
         )
 
 
