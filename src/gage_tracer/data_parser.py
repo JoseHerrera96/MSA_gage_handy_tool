@@ -9,6 +9,7 @@ downstream analysis.
 from __future__ import annotations
 
 import re
+import math
 from io import StringIO, TextIOBase
 from pathlib import Path
 from typing import IO, TextIO, Union
@@ -581,3 +582,110 @@ def transform_gage_rr_data(
         print(f"Data saved to '{output_file}'")
 
     return df
+
+
+def paired_input_has_blocks(input_file: _InputSource) -> bool:
+    """Return whether a paired input contains BEGIN/END report markers."""
+    with _open_text_input(input_file) as fh:
+        raw_text = fh.read()
+    lines = [line.lstrip("\x1a").strip() for line in raw_text.splitlines()]
+    return any(
+        _is_paired_block_marker(line, "BEGIN") or _is_paired_block_marker(line, "END")
+        for line in lines
+    )
+
+
+def _is_paired_block_marker(line: str, marker: str) -> bool:
+    match = re.fullmatch(r'"?:?(BEGIN|END)"?(?:\t.*)?', line.strip(), re.IGNORECASE)
+    return match is not None and match.group(1).casefold() == marker.lstrip(":").casefold()
+
+
+def transform_paired_multicharacteristic_data(input_file: _InputSource) -> pd.DataFrame:
+    """Parse paired-system report blocks into observation/characteristic rows."""
+    with _open_text_input(input_file) as fh:
+        raw_text = fh.read()
+    raw_text = raw_text.replace('END"":BEGIN', 'END"\n":BEGIN')
+    lines = [line.lstrip("\x1a").strip() for line in raw_text.splitlines()]
+
+    records: list[dict[str, object]] = []
+    block_records: list[dict[str, object]] = []
+    expected_characteristics: tuple[str, ...] | None = None
+    block_number = 0
+    in_block = False
+    found_marker = False
+
+    for line_number, line in enumerate(lines, start=1):
+        if _is_paired_block_marker(line, "BEGIN"):
+            found_marker = True
+            if in_block:
+                raise ValueError(
+                    f"Line {line_number}: a new BEGIN marker appeared before the prior block ended."
+                )
+            in_block = True
+            block_records = []
+            continue
+        if _is_paired_block_marker(line, "END"):
+            found_marker = True
+            if not in_block:
+                raise ValueError(f"Line {line_number}: END marker has no matching BEGIN.")
+            if not block_records:
+                raise ValueError(f"Report {block_number + 1} contains no measurement rows.")
+            characteristics = tuple(str(row["Characteristic"]) for row in block_records)
+            if len(set(characteristics)) != len(characteristics):
+                raise ValueError(f"Report {block_number + 1} contains a duplicated characteristic.")
+            if expected_characteristics is None:
+                expected_characteristics = characteristics
+            elif set(characteristics) != set(expected_characteristics):
+                missing = sorted(set(expected_characteristics) - set(characteristics))
+                unexpected = sorted(set(characteristics) - set(expected_characteristics))
+                raise ValueError(
+                    f"Report {block_number + 1} has a different set of characteristics. "
+                    f"Missing: {missing or 'none'}; unexpected: {unexpected or 'none'}."
+                )
+            block_number += 1
+            for row in block_records:
+                records.append({"Observation": block_number, **row})
+            in_block = False
+            continue
+
+        if not in_block:
+            if line:
+                raise ValueError(
+                    f"Line {line_number}: content is not inside a BEGIN/END report block."
+                )
+            continue
+        if not line:
+            continue
+        metadata_line = line.strip().strip('"')
+        if metadata_line.upper().startswith(("PATTERN:", "DISPLAY:", "UNIT:")):
+            continue
+        if "\t" not in line:
+            raise ValueError(
+                f"Line {line_number}: expected a tab-separated characteristic and measurement."
+            )
+        parts = line.split("\t")
+        characteristic = parts[0].strip().strip('"')
+        if not characteristic:
+            raise ValueError(f"Line {line_number}: characteristic label cannot be empty.")
+        try:
+            measurement = float(parts[1])
+        except (ValueError, IndexError) as exc:
+            raise ValueError(
+                f"Line {line_number}: invalid measurement for {characteristic!r}."
+            ) from exc
+        if not math.isfinite(measurement):
+            raise ValueError(
+                f"Line {line_number}: measurement for {characteristic!r} must be finite."
+            )
+        block_records.append(
+            {"Characteristic": characteristic, "Measurement": measurement}
+        )
+
+    if in_block:
+        raise ValueError("Input ended before the final END marker.")
+    if not found_marker:
+        raise ValueError("No BEGIN/END measurement blocks found in paired input.")
+    if block_number < 2:
+        raise ValueError("Paired multi-characteristic input requires at least two report blocks.")
+
+    return pd.DataFrame(records, columns=["Observation", "Characteristic", "Measurement"])

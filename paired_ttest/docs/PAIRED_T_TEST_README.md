@@ -6,12 +6,52 @@ This tool performs a paired comparison study between two measurement systems (Sy
 
 ### 1. Prepare Your Data
 
-Create two text files in the project root directory:
+For the CLI, place both files in `paired_ttest/raw/`. Existing root-level input
+files are still accepted as a legacy fallback. In Streamlit, upload both files.
 
 - **`PAIRED DATA SYSTEM A.txt`**: One measurement per line (System A values)
 - **`PAIRED DATA SYSTEM B.txt`**: One measurement per line (System B values)
 
-**Important**: Both files must have exactly the same number of lines, with measurements aligned by row.
+**Single characteristic**: Each nonblank line must contain exactly one finite
+numeric measurement. Both files must contain at least two values and have the
+same number of values. Values are paired by line order; blank lines are ignored.
+
+**Multiple characteristics**: Use matching `:BEGIN`/`:END` report blocks in
+both files. Each block represents one paired observation. Inside a block, each
+measurement row must have this tab-separated structure:
+
+```text
+<characteristic><TAB><finite numeric measurement>[<TAB><ignored metadata>...]
+```
+
+`<TAB>` means a literal tab character. The first field is the characteristic
+label; the second is the measured value. Any later fields, such as GRR nominal
+or tolerance values, are ignored. The optional `PATTERN:`, `DISPLAY:`, and
+`UNIT:` metadata lines are allowed inside blocks. Do not add a column-header row
+inside a block.
+
+Every block must contain each characteristic exactly once, and all blocks in
+both files must have the same exact characteristic labels. Rows are matched by
+label, so their order within a block may differ. Blocks are matched by their
+position in the files, so block 1 in System A must describe the same observation
+as block 1 in System B. Both files need the same block count and at least two
+blocks. Blank lines are allowed; measurement rows outside a block are not.
+
+Example for each system (use literal tabs in place of `<TAB>`):
+
+```text
+:BEGIN
+PATTERN: STUDY-01
+DISPLAY: Paired sample
+UNIT: mm
+"C1"<TAB>0.3540
+"C2"<TAB>10.2500
+:END
+:BEGIN
+"C1"<TAB>0.3542
+"C2"<TAB>10.2510
+:END
+```
 
 **Example**:
 
@@ -50,6 +90,17 @@ The tool generates three output files:
 | `Paired_T_Test_Dashboard.html`   | Interactive HTML dashboard with embedded charts  |
 
 Open the `.html` file in any web browser to view the dashboard.
+
+For block-based multi-characteristic input, the study overview is shown first.
+It reports raw and Holm-adjusted p-values, mean differences, confidence
+intervals, standardized effects, and outlier, normality, and sample-size
+diagnostics. Select a characteristic to open its usual detailed report. The
+overview and all per-characteristic dashboards are available as HTML and as a
+ZIP archive.
+
+Holm-adjusted p-values account for testing multiple characteristics. A result
+that is not statistically significant does not establish that the systems are
+equivalent.
 
 ---
 

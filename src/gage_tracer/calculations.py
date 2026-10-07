@@ -273,8 +273,8 @@ def calculate_gage_rr_crossed(
             {"Source": "Part", "DF": df_part, "SS": ss_part, "MS": ms_part, "F": f_part, "P": p_part},
             {"Source": "Operator", "DF": df_operator, "SS": ss_operator, "MS": ms_operator, "F": f_operator, "P": p_operator},
             {"Source": "Part * Operator", "DF": df_interaction, "SS": ss_interaction, "MS": ms_interaction, "F": f_interaction, "P": p_interaction},
-            {"Source": "Error", "DF": df_error, "SS": ss_error, "MS": ms_error, "F": "", "P": ""},
-            {"Source": "Total", "DF": df_total, "SS": ss_total, "MS": "", "F": "", "P": ""},
+            {"Source": "Error", "DF": df_error, "SS": ss_error, "MS": ms_error, "F": None, "P": None},
+            {"Source": "Total", "DF": df_total, "SS": ss_total, "MS": None, "F": None, "P": None},
         ]
     )
 
@@ -386,8 +386,8 @@ def calculate_gage_rr_crossed(
         )
     anova_data.extend(
         [
-            {"Source": "Error", "DF": df_error_final, "SS": ss_error if not pooled_interaction else ss_error + ss_interaction, "MS": ms_error_final, "F": "", "P": ""},
-            {"Source": "Total", "DF": df_total, "SS": ss_total, "MS": "", "F": "", "P": ""},
+            {"Source": "Error", "DF": df_error_final, "SS": ss_error if not pooled_interaction else ss_error + ss_interaction, "MS": ms_error_final, "F": None, "P": None},
+            {"Source": "Total", "DF": df_total, "SS": ss_total, "MS": None, "F": None, "P": None},
         ]
     )
     anova_df = pd.DataFrame(anova_data)

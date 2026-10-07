@@ -206,7 +206,7 @@ The Paired T-Test module uses:
 
 ### Existing Type 1 Gage Study: Unchanged ✓
 - `Type_1_gage_handy_tool.py` runs exactly as before
-- No modifications to `data_parser.py`
+- `data_parser.py` adds an independent paired report-block parser; the GRR parsing path remains unchanged
 - No modifications to `calculations.py`
 - No modifications to `visualization.py`
 - Import structure in `__init__.py` only adds new exports (backward compatible)
@@ -273,3 +273,22 @@ create_paired_ttest_dashboard(paired_df, metrics, Path("report.html"))
 ✓ **Validated**: Ground truth test case included
 
 The implementation is production-ready and follows all requested constraints.
+
+## Multi-Characteristic Paired Studies
+
+The existing one-measurement-per-line paired input remains supported. For
+multiple characteristics, both system files may use matching `:BEGIN`/`:END`
+blocks. Each block is one paired observation and contains rows with a
+characteristic label, a tab, and a finite numeric measurement; trailing GRR
+fields are ignored. The optional `PATTERN:`, `DISPLAY:`, and `UNIT:` lines are
+allowed. Every characteristic must appear exactly once per block. Both systems
+must have the same labels and block count; characteristics are matched by label
+within a block, while blocks are paired by file order. Malformed and non-finite
+values are rejected in both block and legacy numeric formats.
+
+The interactive page and CLI calculate the existing paired t-test metrics and
+diagnostics independently for each characteristic. The overview sorts by
+Holm-adjusted p-value and includes the raw p-value, adjusted p-value, confidence
+interval, standardized effect, and diagnostic statuses. A nonsignificant result
+does not establish equivalence. HTML overview and per-characteristic dashboards
+are available individually and in a ZIP archive.
