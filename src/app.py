@@ -15,6 +15,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from gage_tracer.data_parser import transform_raw_data, transform_gage_rr_data
+from gage_tracer.data_parser import paired_input_has_blocks
 from gage_tracer.calculations import (
     calculate_gage_rr_by_characteristic,
 )
@@ -30,7 +31,11 @@ from gage_tracer.paired_ttest import (
     build_minitab_summary_comments,
     build_power_explanatory_text,
     build_report_card_rows,
+    build_paired_ttest_overview_dataframe,
     calculate_paired_ttest_diagnostics,
+    create_paired_ttest_html_overview,
+    create_paired_ttest_html_zip,
+    parse_paired_multicharacteristic_measurements,
     parse_paired_measurements,
     calculate_paired_ttest_metrics,
     create_paired_ttest_dashboard,
@@ -64,7 +69,7 @@ from gage_tracer.presentation import (
 
 def _uploaded_to_textio(uploaded_file: Any) -> TextIO:
     """Convert an uploaded Streamlit file object into a reusable text stream."""
-    raw = uploaded_file.read()
+    raw = uploaded_file.getvalue() if hasattr(uploaded_file, "getvalue") else uploaded_file.read()
     if isinstance(raw, bytes):
         raw = raw.decode("utf-8", errors="replace")
     return io.StringIO(raw)
@@ -416,6 +421,11 @@ def _render_paired_page() -> None:
     st.header("Paired t Test for the Mean of Two Systems")
     with st.container():
         st.markdown("#### Step 1 — Upload paired system measurements")
+        st.caption(
+            "Single: one finite number per nonblank line. Multi: matching :BEGIN/:END "
+            "blocks; each row is label, TAB, finite measurement (extra columns ignored). "
+            "Labels must match; blocks pair by file order."
+        )
         left, right = st.columns(2)
         with left:
             file_a = st.file_uploader("System A measurements", type=["txt"], key="paired_a")
@@ -430,10 +440,7 @@ def _render_paired_page() -> None:
 
     try:
         with st.spinner("Processing paired T-Test data..."):
-            buffer_a = _uploaded_to_textio(file_a)
-            buffer_b = _uploaded_to_textio(file_b)
-            paired_df, system_a, system_b, differences = parse_paired_measurements(buffer_a, buffer_b)
-
+            selected_characteristic: str | None = None
             system_a_name = Path(file_a.name).stem if hasattr(file_a, "name") else "System A"
             system_b_name = Path(file_b.name).stem if hasattr(file_b, "name") else "System B"
             if "PAIRED DATA " in system_a_name:
@@ -441,16 +448,104 @@ def _render_paired_page() -> None:
             if "PAIRED DATA " in system_b_name:
                 system_b_name = system_b_name.replace("PAIRED DATA ", "")
 
-            metrics = calculate_paired_ttest_metrics(system_a, system_b)
-            diagnostics = calculate_paired_ttest_diagnostics(
-                system_a,
-                system_b,
-                system_a_name=system_a_name,
-                system_b_name=system_b_name,
-            )
+            has_blocks_a = paired_input_has_blocks(_uploaded_to_textio(file_a))
+            has_blocks_b = paired_input_has_blocks(_uploaded_to_textio(file_b))
+            if has_blocks_a != has_blocks_b:
+                raise ValueError("Both systems must use the same paired input format.")
+
+            if has_blocks_a:
+                analyses = parse_paired_multicharacteristic_measurements(
+                    _uploaded_to_textio(file_a), _uploaded_to_textio(file_b)
+                )
+                for analysis in analyses.values():
+                    analysis["metrics"] = calculate_paired_ttest_metrics(
+                        analysis["system_a"], analysis["system_b"]
+                    )
+                    analysis["diagnostics"] = calculate_paired_ttest_diagnostics(
+                        analysis["system_a"],
+                        analysis["system_b"],
+                        system_a_name=system_a_name,
+                        system_b_name=system_b_name,
+                    )
+                overview = build_paired_ttest_overview_dataframe(analyses)
+                overview_label = "Study Overview"
+                selected_report = st.selectbox(
+                    "Paired T-Test report",
+                    options=[overview_label, *analyses],
+                    key=f"paired_report_{file_a.file_id}_{file_b.file_id}",
+                )
+                if selected_report == overview_label:
+                    holm_values = overview["Holm P-Value"]
+                    overview_cols = st.columns(3)
+                    overview_cols[0].metric("Characteristics", len(overview))
+                    overview_cols[1].metric(
+                        "Significant after Holm", int((holm_values < 0.05).sum())
+                    )
+                    overview_cols[2].metric(
+                        "With diagnostic warnings",
+                        int(
+                            (
+                                (overview["Outlier Status"] != "PASS")
+                                | (overview["Normality"] != "PASS")
+                            ).sum()
+                        ),
+                    )
+                    st.dataframe(overview, use_container_width=True, hide_index=True)
+                    st.caption(
+                        "Holm-adjusted p-values account for testing multiple characteristics. "
+                        "No significant difference detected is not evidence that the systems are equivalent."
+                    )
+                    with st.container():
+                        st.markdown("#### Export overview")
+                        overview_html = create_paired_ttest_html_overview(
+                            overview, system_a_name, system_b_name
+                        )
+                        download_cols = st.columns(2)
+                        download_cols[0].download_button(
+                            label="Download study overview HTML",
+                            data=overview_html,
+                            file_name="Paired_T_Test_Study_Overview.html",
+                            mime="text/html",
+                        )
+                        download_cols[1].download_button(
+                            label="Download all reports (.zip)",
+                            data=lambda: create_paired_ttest_html_zip(
+                                analyses, system_a_name, system_b_name
+                            ),
+                            file_name="Paired_T_Test_HTML_Reports.zip",
+                            mime="application/zip",
+                            icon=":material/archive:",
+                        )
+                        st.caption(
+                            "The ZIP is built on demand. Keep this page open until the download starts."
+                        )
+                    return
+
+                selected_analysis = analyses[selected_report]
+                selected_characteristic = selected_report
+                paired_df = selected_analysis["paired_df"]
+                system_a = selected_analysis["system_a"]
+                system_b = selected_analysis["system_b"]
+                differences = selected_analysis["differences"]
+                metrics = selected_analysis["metrics"]
+                diagnostics = selected_analysis["diagnostics"]
+                st.subheader(f"Characteristic: {selected_report}")
+            else:
+                buffer_a = _uploaded_to_textio(file_a)
+                buffer_b = _uploaded_to_textio(file_b)
+                paired_df, system_a, system_b, differences = parse_paired_measurements(
+                    buffer_a, buffer_b
+                )
+                metrics = calculate_paired_ttest_metrics(system_a, system_b)
+                diagnostics = calculate_paired_ttest_diagnostics(
+                    system_a,
+                    system_b,
+                    system_a_name=system_a_name,
+                    system_b_name=system_b_name,
+                )
 
     except ValueError as exc:
-        st.error("Paired data must have the same number of observations.")
+        st.error("Unable to align paired data. Verify the input format and report blocks.")
         st.warning(str(exc))
         return
     except Exception as exc:
@@ -523,13 +618,15 @@ def _render_paired_page() -> None:
         run_figure = create_run_chart_figure(paired_df, metrics)
         power_figure = create_power_figure(diagnostics, metrics)
 
-        st.pyplot(worksheet_figure, use_container_width=True)
-        diag_left, diag_right = st.columns(2)
-        with diag_left:
-            st.pyplot(slopegraph_figure, use_container_width=True)
-        with diag_right:
-            st.pyplot(run_figure, use_container_width=True)
-        st.pyplot(power_figure, use_container_width=True)
+        _, chart_area, _ = st.columns([0.075, 0.85, 0.075])
+        with chart_area:
+            st.pyplot(worksheet_figure, use_container_width=True)
+            diag_left, diag_right = st.columns(2)
+            with diag_left:
+                st.pyplot(slopegraph_figure, use_container_width=True)
+            with diag_right:
+                st.pyplot(run_figure, use_container_width=True)
+            st.pyplot(power_figure, use_container_width=True)
 
         power_text = build_power_explanatory_text(diagnostics)
         st.caption(power_text["paragraph"])
@@ -597,6 +694,7 @@ def _render_paired_page() -> None:
             output_path=None,
             system_a_name=system_a_name,
             system_b_name=system_b_name,
+            characteristic_name=selected_characteristic,
         )
         st.download_button(
             label="Download Paired T-Test Dashboard HTML",

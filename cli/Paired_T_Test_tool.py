@@ -8,13 +8,14 @@ This script orchestrates the paired t-test analysis workflow:
 5. Create an interactive HTML dashboard
 
 Usage:
-    1. Place your System A measurements in a file named: PAIRED DATA SYSTEM A.txt
-    2. Place your System B measurements in a file named: PAIRED DATA SYSTEM B.txt
-    3. Run this script:
+    1. Put PAIRED DATA SYSTEM A.txt and PAIRED DATA SYSTEM B.txt in paired_ttest/raw/.
+       Each file may contain one finite numeric value per line, or matching
+       :BEGIN/:END blocks with tab-separated characteristic and measurement fields.
+    2. Run this script:
 
         python Paired_T_Test_tool.py
 
-    4. Review the generated files:
+    3. Review the generated files:
        - paired_data.txt              — parsed measurements (TSV)
        - Paired_T_Test_Summary.txt    — text report
        - Paired_T_Test_Dashboard.html — interactive HTML dashboard
@@ -43,11 +44,17 @@ if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
 from gage_tracer.paired_ttest import (  # noqa: E402  # type: ignore[import-not-found]
+    build_paired_ttest_overview_dataframe,
+    calculate_paired_ttest_diagnostics,
     parse_paired_measurements,
+    parse_paired_multicharacteristic_measurements,
     export_paired_data,
     calculate_paired_ttest_metrics,
     create_paired_ttest_dashboard,
+    create_paired_ttest_html_overview,
+    create_paired_ttest_html_zip,
 )
+from gage_tracer.data_parser import paired_input_has_blocks  # noqa: E402  # type: ignore[import-not-found]
 
 # Structured directories for paired T-Test files.
 PAIRED_ROOT: Path = PROJECT_ROOT / "paired_ttest"
@@ -71,6 +78,7 @@ ROOT_DASHBOARD_HTML: Path = PROJECT_ROOT / "Paired_T_Test_Dashboard.html"
 def _generate_text_report(
     metrics: dict[str, Any],
     output_path: Path,
+    characteristic_name: str | None = None,
 ) -> None:
     """Write a Minitab-style plain-text summary report.
 
@@ -84,6 +92,8 @@ def _generate_text_report(
     with open(output_path, "w", encoding="utf-8") as fh:
         fh.write("=" * 70 + "\n")
         fh.write("PAIRED T-TEST COMPARISON: SYSTEM A vs. SYSTEM B\n")
+        if characteristic_name is not None:
+            fh.write(f"Characteristic: {characteristic_name}\n")
         fh.write(f"Date: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         fh.write("=" * 70 + "\n\n")
 
@@ -152,6 +162,80 @@ def _generate_text_report(
         fh.write("\n" + "=" * 70 + "\n")
 
 
+def _safe_characteristic_filename(characteristic: str) -> str:
+    return "".join(
+        char if char.isalnum() or char in "-_" else "_"
+        for char in characteristic
+    ).strip("_") or "characteristic"
+
+
+def _run_multicharacteristic(
+    raw_a: Path,
+    raw_b: Path,
+    system_a_name: str,
+    system_b_name: str,
+) -> None:
+    analyses = parse_paired_multicharacteristic_measurements(raw_a, raw_b)
+    for analysis in analyses.values():
+        analysis["metrics"] = calculate_paired_ttest_metrics(
+            analysis["system_a"], analysis["system_b"]
+        )
+        analysis["diagnostics"] = calculate_paired_ttest_diagnostics(
+            analysis["system_a"],
+            analysis["system_b"],
+            system_a_name=system_a_name,
+            system_b_name=system_b_name,
+        )
+
+    overview = build_paired_ttest_overview_dataframe(analyses)
+    overview_html_path = PAIRED_DASHBOARD_DIR / "Paired_T_Test_Study_Overview.html"
+    zip_path = PAIRED_DASHBOARD_DIR / "Paired_T_Test_HTML_Reports.zip"
+    create_paired_ttest_html_overview(
+        overview, system_a_name, system_b_name, output_path=overview_html_path
+    )
+    zip_path.write_bytes(
+        create_paired_ttest_html_zip(analyses, system_a_name, system_b_name)
+    )
+
+    data_frames: list[pd.DataFrame] = []
+    for characteristic, analysis in analyses.items():
+        characteristic_key = _safe_characteristic_filename(characteristic)
+        paired_df = analysis["paired_df"].copy()
+        paired_df.insert(1, "Characteristic", characteristic)
+        data_frames.append(paired_df)
+        _generate_text_report(
+            analysis["metrics"],
+            PAIRED_REPORT_DIR / f"Paired_T_Test_{characteristic_key}_Summary.txt",
+            characteristic_name=characteristic,
+        )
+        create_paired_ttest_dashboard(
+            analysis["paired_df"],
+            analysis["metrics"],
+            PAIRED_DASHBOARD_DIR / f"Paired_T_Test_{characteristic_key}.html",
+            system_a_name=system_a_name,
+            system_b_name=system_b_name,
+            characteristic_name=characteristic,
+        )
+
+    pd.concat(data_frames, ignore_index=True).to_csv(
+        PAIRED_DATA_FILE, sep="\t", index=False, float_format="%.8f"
+    )
+    overview_report = (
+        "PAIRED T-TEST STUDY OVERVIEW\n"
+        f"{system_a_name} compared with {system_b_name}\n"
+        "Holm-adjusted p-values account for multiple characteristics. "
+        "No significant difference detected is not evidence of equivalence.\n\n"
+        + overview.to_string(index=False)
+        + "\n"
+    )
+    (PAIRED_REPORT_DIR / "Paired_T_Test_Study_Overview.txt").write_text(
+        overview_report, encoding="utf-8"
+    )
+    print(f"      [OK] Analysed {len(analyses)} characteristics")
+    print(f"      [OK] Study overview -> {overview_html_path.relative_to(PROJECT_ROOT)}")
+    print(f"      [OK] All reports ZIP -> {zip_path.relative_to(PROJECT_ROOT)}")
+
+
 def run() -> None:
     """Run the full paired t-test pipeline.
 
@@ -204,6 +288,15 @@ def run() -> None:
     print(f"      System B: {SYSTEM_B_FILE.name}")
 
     try:
+        if paired_input_has_blocks(raw_a) != paired_input_has_blocks(raw_b):
+            raise ValueError("Both systems must use the same paired input format.")
+        if paired_input_has_blocks(raw_a):
+            system_a_name = raw_a.stem.replace("PAIRED DATA ", "")
+            system_b_name = raw_b.stem.replace("PAIRED DATA ", "")
+            _run_multicharacteristic(
+                raw_a, raw_b, system_a_name, system_b_name
+            )
+            return
         paired_df, system_a, system_b, differences = parse_paired_measurements(
             SYSTEM_A_FILE, SYSTEM_B_FILE
         )

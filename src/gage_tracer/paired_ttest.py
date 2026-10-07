@@ -13,6 +13,7 @@ Design Philosophy:
 from __future__ import annotations
 
 import math
+import zipfile
 from io import BytesIO, StringIO, TextIOBase
 from pathlib import Path
 from typing import Any, IO, TextIO, Union
@@ -24,6 +25,8 @@ import numpy as np
 import pandas as pd
 from scipy import stats as sp_stats
 from scipy.optimize import brentq
+
+from .data_parser import transform_paired_multicharacteristic_data
 
 _InputSource = Union[Path, str, TextIO, IO[bytes]]
 
@@ -80,21 +83,35 @@ def parse_paired_measurements(
     Raises:
         ValueError: If the sources have different lengths or contain non-numeric data.
     """
-    lines_a = [line.strip() for line in _read_text_lines(file_a) if line.strip()]
     system_a_vals = []
-    for line in lines_a:
-        try:
-            system_a_vals.append(float(line))
-        except ValueError:
+    for line_number, line in enumerate(_read_text_lines(file_a), start=1):
+        line = line.strip()
+        if not line:
             continue
+        try:
+            value = float(line)
+        except ValueError as exc:
+            raise ValueError(
+                f"System A line {line_number} is not a numeric measurement: {line!r}."
+            ) from exc
+        if not math.isfinite(value):
+            raise ValueError(f"System A line {line_number} must contain a finite measurement.")
+        system_a_vals.append(value)
 
-    lines_b = [line.strip() for line in _read_text_lines(file_b) if line.strip()]
     system_b_vals = []
-    for line in lines_b:
-        try:
-            system_b_vals.append(float(line))
-        except ValueError:
+    for line_number, line in enumerate(_read_text_lines(file_b), start=1):
+        line = line.strip()
+        if not line:
             continue
+        try:
+            value = float(line)
+        except ValueError as exc:
+            raise ValueError(
+                f"System B line {line_number} is not a numeric measurement: {line!r}."
+            ) from exc
+        if not math.isfinite(value):
+            raise ValueError(f"System B line {line_number} must contain a finite measurement.")
+        system_b_vals.append(value)
 
     if len(system_a_vals) != len(system_b_vals):
         raise ValueError(
@@ -112,6 +129,209 @@ def parse_paired_measurements(
     })
 
     return paired_df, system_a_vals, system_b_vals, differences
+
+
+def parse_paired_multicharacteristic_measurements(
+    file_a: _InputSource,
+    file_b: _InputSource,
+) -> dict[str, dict[str, Any]]:
+    """Parse paired BEGIN/END files and align each characteristic by block order."""
+    data_a = transform_paired_multicharacteristic_data(file_a)
+    data_b = transform_paired_multicharacteristic_data(file_b)
+    observations_a = data_a["Observation"].nunique()
+    observations_b = data_b["Observation"].nunique()
+    if observations_a != observations_b:
+        raise ValueError(
+            f"System A has {observations_a} report blocks; System B has {observations_b}."
+        )
+
+    characteristics_a = list(data_a["Characteristic"].drop_duplicates())
+    characteristics_b = list(data_b["Characteristic"].drop_duplicates())
+    if set(characteristics_a) != set(characteristics_b):
+        missing = sorted(set(characteristics_a) - set(characteristics_b))
+        unexpected = sorted(set(characteristics_b) - set(characteristics_a))
+        raise ValueError(
+            "The systems contain different characteristics. "
+            f"Missing from System B: {missing or 'none'}; "
+            f"unexpected in System B: {unexpected or 'none'}."
+        )
+
+    analyses: dict[str, dict[str, Any]] = {}
+    for characteristic in characteristics_a:
+        values_a = data_a.loc[
+            data_a["Characteristic"] == characteristic, ["Observation", "Measurement"]
+        ].sort_values("Observation")
+        values_b = data_b.loc[
+            data_b["Characteristic"] == characteristic, ["Observation", "Measurement"]
+        ].sort_values("Observation")
+        if values_a["Observation"].tolist() != values_b["Observation"].tolist():
+            raise ValueError(
+                f"Observation blocks for {characteristic!r} do not align between systems."
+            )
+        system_a = values_a["Measurement"].astype(float).tolist()
+        system_b = values_b["Measurement"].astype(float).tolist()
+        if len(system_a) < 2:
+            raise ValueError(f"Characteristic {characteristic!r} needs at least two paired observations.")
+        paired_df = pd.DataFrame(
+            {
+                "Observation": values_a["Observation"].astype(int).tolist(),
+                "System_A": system_a,
+                "System_B": system_b,
+                "Difference": [a - b for a, b in zip(system_a, system_b)],
+            }
+        )
+        analyses[characteristic] = {
+            "paired_df": paired_df,
+            "system_a": system_a,
+            "system_b": system_b,
+            "differences": paired_df["Difference"].tolist(),
+        }
+    return analyses
+
+
+def _holm_adjusted_p_values(p_values: list[float]) -> list[float]:
+    """Return Holm step-down adjusted p-values in their original order."""
+    order = sorted(range(len(p_values)), key=p_values.__getitem__)
+    adjusted_sorted: list[float] = []
+    running_max = 0.0
+    for rank, index in enumerate(order):
+        adjusted = min(1.0, (len(p_values) - rank) * p_values[index])
+        running_max = max(running_max, adjusted)
+        adjusted_sorted.append(running_max)
+    adjusted = [0.0] * len(p_values)
+    for index, value in zip(order, adjusted_sorted):
+        adjusted[index] = value
+    return adjusted
+
+
+def build_paired_ttest_overview_dataframe(
+    analyses_by_characteristic: dict[str, dict[str, Any]],
+) -> pd.DataFrame:
+    """Build an overview of per-characteristic paired results and diagnostics."""
+    characteristics = list(analyses_by_characteristic)
+    p_values = [
+        float(analyses_by_characteristic[name]["metrics"]["P_Value"])
+        for name in characteristics
+    ]
+    adjusted_p_values = _holm_adjusted_p_values(p_values)
+    rows: list[dict[str, Any]] = []
+    for characteristic, raw_p, adjusted_p in zip(
+        characteristics, p_values, adjusted_p_values
+    ):
+        analysis = analyses_by_characteristic[characteristic]
+        metrics = analysis["metrics"]
+        diagnostics = analysis["diagnostics"]
+        difference_sd = float(metrics["StDev_D"])
+        standardized_effect = (
+            float(metrics["Mean_D"]) / difference_sd if difference_sd > 0 else None
+        )
+        rows.append(
+            {
+                "Characteristic": characteristic,
+                "N": int(metrics["N"]),
+                "Mean Difference (A - B)": float(metrics["Mean_D"]),
+                "Standardized Effect": standardized_effect,
+                "CI 95%": f"[{float(metrics['CI_Lower']):.6g}, {float(metrics['CI_Upper']):.6g}]",
+                "P-Value": raw_p,
+                "Holm P-Value": adjusted_p,
+                "Outliers": int(diagnostics["Outlier_Count"]),
+                "Outlier Status": str(diagnostics["Outlier_Status"]),
+                "Normality": str(diagnostics["Normality_Status"]),
+                "Sample Size": str(diagnostics["Sample_Size_Status"]),
+                "Conclusion": (
+                    "Significant difference"
+                    if adjusted_p < 0.05
+                    else "No significant difference detected"
+                ),
+            }
+        )
+    return pd.DataFrame(rows).sort_values(
+        ["Holm P-Value", "Characteristic"], ignore_index=True
+    )
+
+
+def create_paired_ttest_html_overview(
+    overview: pd.DataFrame,
+    system_a_name: str,
+    system_b_name: str,
+    output_path: Path | None = None,
+) -> str:
+    """Create a standalone HTML summary of a multi-characteristic comparison."""
+    from html import escape
+
+    table_html = overview.to_html(
+        index=False,
+        classes="results-table",
+        border=0,
+        escape=True,
+        float_format=lambda value: f"{value:.6g}",
+    )
+    html = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paired T-Test Study Overview</title>
+<style>
+body {{ margin:0; padding:32px; color:#17242b; background:#f1f4f3; font:14px/1.5 Segoe UI, sans-serif; }}
+main {{ max-width:1400px; margin:0 auto; }}
+h1 {{ margin:0 0 8px; font-size:28px; }}
+.meta {{ color:#52636a; margin:0 0 20px; }}
+.note {{ margin:18px 0; padding:12px 16px; background:#e5efec; border-left:3px solid #217a63; }}
+.table-wrap {{ overflow-x:auto; background:#fff; border:1px solid #ccd6d3; }}
+table {{ width:100%; border-collapse:collapse; }}
+th, td {{ padding:9px 11px; border-bottom:1px solid #dce3e1; text-align:left; white-space:nowrap; }}
+th {{ background:#e8efed; font-size:12px; }}
+tbody tr:last-child td {{ border-bottom:0; }}
+</style>
+</head>
+<body><main>
+<h1>Paired T-Test Study Overview</h1>
+<p class="meta">{escape(system_a_name)} compared with {escape(system_b_name)} · {len(overview)} characteristics</p>
+<p class="note">Holm-adjusted p-values account for testing multiple characteristics. No significant difference detected is not evidence that the systems are equivalent.</p>
+<div class="table-wrap">{table_html}</div>
+</main></body></html>"""
+    if output_path is not None:
+        output_path.write_text(html, encoding="utf-8")
+    return html
+
+
+def create_paired_ttest_html_zip(
+    analyses_by_characteristic: dict[str, dict[str, Any]],
+    system_a_name: str,
+    system_b_name: str,
+) -> bytes:
+    """Create a ZIP with the study overview and one dashboard per characteristic."""
+    overview = build_paired_ttest_overview_dataframe(analyses_by_characteristic)
+    archive_buffer = BytesIO()
+    with zipfile.ZipFile(
+        archive_buffer, mode="w", compression=zipfile.ZIP_DEFLATED
+    ) as archive:
+        archive.writestr(
+            "000_Paired_T_Test_Study_Overview.html",
+            create_paired_ttest_html_overview(
+                overview, system_a_name, system_b_name
+            ),
+        )
+        for index, (characteristic, analysis) in enumerate(
+            analyses_by_characteristic.items(), start=1
+        ):
+            safe_characteristic = "".join(
+                char if char.isalnum() or char in "-_" else "_"
+                for char in characteristic
+            ).strip("_") or "characteristic"
+            dashboard = create_paired_ttest_dashboard(
+                analysis["paired_df"],
+                analysis["metrics"],
+                system_a_name=system_a_name,
+                system_b_name=system_b_name,
+                characteristic_name=characteristic,
+            )
+            archive.writestr(
+                f"{index:03d}_Paired_T_Test_{safe_characteristic}.html",
+                dashboard,
+            )
+    return archive_buffer.getvalue()
 
 
 def export_paired_data(
@@ -306,10 +526,13 @@ def calculate_paired_ttest_diagnostics(
         abs(mean_difference), std_difference, sample_size
     )
 
-    p_value = 2.0 * sp_stats.t.sf(
-        abs(mean_difference / (std_difference / math.sqrt(sample_size))) if std_difference > 0 else 0.0,
-        sample_size - 1,
-    )
+    if std_difference > 0:
+        p_value = 2.0 * sp_stats.t.sf(
+            abs(mean_difference / (std_difference / math.sqrt(sample_size))),
+            sample_size - 1,
+        )
+    else:
+        p_value = 0.0 if abs(mean_difference) > 1e-12 else 1.0
     delta_90 = power_by_target[0.90]
     if p_value >= 0.05:
         sample_size_message = (
@@ -765,6 +988,7 @@ def create_paired_ttest_dashboard(
     output_path: Path | None = None,
     system_a_name: str = "System A",
     system_b_name: str = "System B",
+    characteristic_name: str | None = None,
 ) -> str:
     """Generate a self-contained Minitab Assistant-style Paired T-Test report.
 
@@ -865,7 +1089,7 @@ def create_paired_ttest_dashboard(
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Paired t Test Report</title><style>
+<title>{escape(f"{characteristic_name} · " if characteristic_name else "")}Paired t Test Report</title><style>
 :root {{ --bg:#171717; --surface:#242424; --raised:#303030; --text:#F2F2F2; --muted:#B8B8B8; --border:#555555; --accent:#FF8C00; --green:#39D98A; --red:#FF6B6B; --yellow:#F5C84C; --blue:#4DA3FF; }}
 * {{ box-sizing:border-box; }} body {{ margin:0; background:var(--bg); color:var(--text); font:14px "Segoe UI",sans-serif; line-height:1.55; }}
 .page {{ max-width:1440px; margin:auto; padding:28px; }} .header {{ border-bottom:2px solid var(--border); margin-bottom:20px; padding-bottom:16px; text-align:center; }}
@@ -880,8 +1104,8 @@ h1 {{ margin:0; font-size:24px; color:var(--text); }} h2 {{ font-size:16px; marg
 @media(max-width:800px) {{ .grid2 {{ grid-template-columns:1fr; }} .page {{ padding:16px; }} }}
 </style></head><body><main class="page">
 <header class="header">
-  <h1>Paired t Test for the Mean of {escape(system_a_name)} and {escape(system_b_name)}</h1>
-  <div class="subtitle">Two-sided paired t-test · α = 0.05</div>
+    <h1>Paired t Test for the Mean of {escape(system_a_name)} and {escape(system_b_name)}</h1>
+    <div class="subtitle">Two-sided paired t-test · α = 0.05{f" · Characteristic: {escape(characteristic_name)}" if characteristic_name else ""}</div>
 </header>
 <nav class="tabs"><button class="tab active" data-tab="summary">Summary Report</button><button class="tab" data-tab="diagnostic">Diagnostic Report</button><button class="tab" data-tab="card">Report Card</button></nav>
 
