@@ -15,7 +15,9 @@ import pandas as pd
 
 from gage_tracer.data_parser import (
     paired_input_has_blocks,
+    transform_raw_data,
     transform_gage_rr_data,
+    transform_gage_rr_grouped_data,
     transform_paired_multicharacteristic_data,
 )
 from gage_tracer.calculations import calculate_gage_rr_by_characteristic
@@ -28,6 +30,7 @@ from gage_tracer.paired_ttest import (
     create_paired_ttest_html_zip,
     parse_paired_measurements,
     parse_paired_multicharacteristic_measurements,
+    parse_paired_unstructured_measurements,
 )
 from gage_tracer.presentation import (
     format_paired_preview,
@@ -46,6 +49,55 @@ def _measurement_row(tag: str, value: float = 1.0) -> str:
     return f'"{tag}"\t{value:.4f}\t1.0000\t0.1000\t-0.1000'
 
 
+class Type1ParserTests(unittest.TestCase):
+    def test_periodic_reports_ignore_metadata_and_keep_repeated_dimension_cycles(self) -> None:
+        reports = []
+        for offset in (0.0, 0.1, 0.2):
+            reports.append(
+                '\n'.join(
+                    [
+                        '"PATTERN: study"',
+                        '"DISPLAY: sample"',
+                        '"UNIT: mm"',
+                        f'"C1"\t{1 + offset:.4f}\t1.0000\t0.1000\t-0.1000',
+                        f'"C2"\t{2 + offset:.4f}\t2.0000\t0.2000\t-0.2000',
+                    ]
+                )
+            )
+
+        frame = transform_raw_data(StringIO('\nHeader\n'.join(reports)), input_format="periodic")
+
+        self.assertEqual(frame["C1"].tolist(), ["1.0000000", "1.1000000", "1.2000000"])
+        self.assertEqual(frame["C2"].tolist(), ["2.0000000", "2.1000000", "2.2000000"])
+        self.assertEqual(frame.loc[frame["Dimension"] == "C1", "Nominal"].iloc[0], "1.00000000")
+
+    def test_periodic_reports_reject_changed_cycle_and_malformed_measurements(self) -> None:
+        changed_cycle = (
+            '"C1"\t1\t1\t0.1\t-0.1\n"C2"\t2\t2\t0.2\t-0.2\n'
+            '"C1"\t1.1\t1\t0.1\t-0.1\n"C3"\t3\t3\t0.3\t-0.3'
+        )
+        malformed = '"C1"\tbad\t1\t0.1\t-0.1\n"C2"\t2\t2\t0.2\t-0.2'
+
+        with self.assertRaisesRegex(ValueError, "does not match the characteristic order"):
+            transform_raw_data(StringIO(changed_cycle), input_format="periodic")
+        with self.assertRaisesRegex(ValueError, "invalid numeric field"):
+            transform_raw_data(StringIO(malformed), input_format="periodic")
+
+    def test_periodic_reports_reject_incomplete_final_cycle(self) -> None:
+        data = (
+            '"C1"\t1\t1\t0.1\t-0.1\n"C2"\t2\t2\t0.2\t-0.2\n'
+            '"C1"\t1.1\t1\t0.1\t-0.1'
+        )
+        with self.assertRaisesRegex(ValueError, "does not match the characteristic order"):
+            transform_raw_data(StringIO(data), input_format="periodic")
+
+    def test_explicit_block_mode_requires_balanced_markers(self) -> None:
+        with self.assertRaisesRegex(ValueError, "No BEGIN/END report blocks"):
+            transform_raw_data(
+                StringIO('"C1"\t1\t1\t0.1\t-0.1'), input_format="blocks"
+            )
+
+
 class StudyConfigTests(unittest.TestCase):
     def test_fixed_crossed_design(self) -> None:
         self.assertEqual(GRR_DESIGN.report_blocks, 90)
@@ -61,6 +113,122 @@ class StudyConfigTests(unittest.TestCase):
 
 
 class GageRRParserTests(unittest.TestCase):
+    def test_grouped_files_by_part_assign_operator_and_trial_order(self) -> None:
+        files = []
+        for part in range(1, GRR_DESIGN.parts + 1):
+            reports = []
+            for report in range(1, 10):
+                rows = "\n".join(
+                    _measurement_row(characteristic, part * 100 + report + offset / 10)
+                    for offset, characteristic in enumerate(("C1", "C2"))
+                )
+                reports.append(f":BEGIN\n{rows}\n:END")
+            files.append((f"Part {part}.txt", StringIO("\n".join(reports))))
+
+        frame = transform_gage_rr_grouped_data(files, group_by="part")
+
+        self.assertEqual(frame["Report"].nunique(), GRR_DESIGN.report_blocks)
+        self.assertEqual(len(frame), GRR_DESIGN.report_blocks * 2)
+        self.assertTrue(frame.groupby("Report")["Characteristic"].nunique().eq(2).all())
+        expected = {
+            1: ("Part_1", "Operator_1", 1),
+            3: ("Part_1", "Operator_1", 3),
+            4: ("Part_1", "Operator_2", 1),
+            9: ("Part_1", "Operator_3", 3),
+            10: ("Part_2", "Operator_1", 1),
+            90: ("Part_10", "Operator_3", 3),
+        }
+        for report, factors in expected.items():
+            row = frame.loc[frame["Report"] == report].iloc[0]
+            self.assertEqual((row["Part"], row["Operator"], row["Trial"]), factors)
+
+    def test_grouped_files_by_operator_assign_part_and_trial_order(self) -> None:
+        files = []
+        for operator in range(1, GRR_DESIGN.operators + 1):
+            reports = []
+            for report in range(1, 31):
+                rows = "\n".join(
+                    _measurement_row(characteristic, operator * 100 + report + offset / 10)
+                    for offset, characteristic in enumerate(("C1", "C2"))
+                )
+                reports.append(f":BEGIN\n{rows}\n:END")
+            files.append((f"Operator {operator}.txt", StringIO("\n".join(reports))))
+
+        frame = transform_gage_rr_grouped_data(files, group_by="operator")
+
+        self.assertEqual(frame["Report"].nunique(), GRR_DESIGN.report_blocks)
+        self.assertEqual(len(frame), GRR_DESIGN.report_blocks * 2)
+        expected = {
+            1: ("Part_1", "Operator_1", 1),
+            3: ("Part_1", "Operator_1", 3),
+            4: ("Part_2", "Operator_1", 1),
+            30: ("Part_10", "Operator_1", 3),
+            31: ("Part_1", "Operator_2", 1),
+            90: ("Part_10", "Operator_3", 3),
+        }
+        for report, factors in expected.items():
+            row = frame.loc[frame["Report"] == report].iloc[0]
+            self.assertEqual((row["Part"], row["Operator"], row["Trial"]), factors)
+
+    def test_grouped_input_layouts_match_single_file_rows_and_analysis(self) -> None:
+        single_reports = []
+        part_files = []
+        operator_reports = {operator: [] for operator in range(1, GRR_DESIGN.operators + 1)}
+
+        for part in range(1, GRR_DESIGN.parts + 1):
+            part_reports = []
+            for operator in range(1, GRR_DESIGN.operators + 1):
+                for trial in range(1, GRR_DESIGN.trials_per_part + 1):
+                    rows = "\n".join(
+                        _measurement_row(
+                            characteristic,
+                            part * 10 + operator + trial / 10 + offset / 100,
+                        )
+                        for offset, characteristic in enumerate(("C1", "C2"))
+                    )
+                    report = f":BEGIN\n{rows}\n:END"
+                    single_reports.append(report)
+                    part_reports.append(report)
+                    operator_reports[operator].append(report)
+            part_files.append((f"Part {part}.txt", StringIO("\n".join(part_reports))))
+
+        single_frame = transform_gage_rr_data(StringIO("\n".join(single_reports)))
+        by_part_frame = transform_gage_rr_grouped_data(part_files, group_by="part")
+        by_operator_frame = transform_gage_rr_grouped_data(
+            [
+                (f"Operator {operator}.txt", StringIO("\n".join(reports)))
+                for operator, reports in operator_reports.items()
+            ],
+            group_by="operator",
+        )
+
+        comparable_columns = [
+            "Part", "Operator", "Trial", "Characteristic", "Measurement",
+            "Nominal", "Upper Tol", "Lower Tol", "Tolerance",
+        ]
+        expected_rows = single_frame[comparable_columns].sort_values(
+            comparable_columns[:4]
+        ).reset_index(drop=True)
+        for frame in (by_part_frame, by_operator_frame):
+            actual_rows = frame[comparable_columns].sort_values(
+                comparable_columns[:4]
+            ).reset_index(drop=True)
+            pd.testing.assert_frame_equal(expected_rows, actual_rows)
+
+        expected_results = calculate_gage_rr_by_characteristic(single_frame)
+        for frame in (by_part_frame, by_operator_frame):
+            actual_results = calculate_gage_rr_by_characteristic(frame)
+            for characteristic in expected_results:
+                pd.testing.assert_frame_equal(
+                    expected_results[characteristic]["variance_components"],
+                    actual_results[characteristic]["variance_components"],
+                )
+                self.assertAlmostEqual(
+                    expected_results[characteristic]["total_grr_pct"],
+                    actual_results[characteristic]["total_grr_pct"],
+                    places=10,
+                )
+
     def test_untagged_reports_use_part_operator_trial_order_by_default(self) -> None:
         data = "\n".join(
             f":BEGIN\n{_measurement_row('C20_A001', report_number)}\n:END"
@@ -158,11 +326,65 @@ class GageRRParserTests(unittest.TestCase):
 
 
 class PairedBlockParserTests(unittest.TestCase):
+    def test_unstructured_text_extracts_values_and_ignores_headers_and_markers(self) -> None:
+        data_a = (
+            'System A measurements\nSample 1\n":BEGIN"\t"09:08:26"\n'
+            'Measurement: 10.1\nPATTERN: study-01\nMeasurement: 10.2\n":END"\n'
+        )
+        data_b = (
+            'System B measurements\n":BEGIN"\nMeasurement: 10.0\n'
+            'Measurement: 10.3\n":END"\n'
+        )
+
+        paired_df, system_a, system_b, differences = parse_paired_unstructured_measurements(
+            StringIO(data_a), StringIO(data_b)
+        )
+
+        self.assertEqual(system_a, [10.1, 10.2])
+        self.assertEqual(system_b, [10.0, 10.3])
+        self.assertEqual(paired_df["Observation"].tolist(), [1, 2])
+        self.assertEqual(paired_df["System_A_Source_Line"].tolist(), [4, 6])
+        self.assertEqual(paired_df["System_B_Source_Line"].tolist(), [3, 4])
+        self.assertAlmostEqual(differences[0], 0.1)
+        self.assertAlmostEqual(differences[1], -0.1)
+
+    def test_unstructured_text_rejects_ambiguous_and_unpaired_rows(self) -> None:
+        two_numbers = "Measurement: 10.1 nominal 10.0\nMeasurement: 10.2"
+        interstitial_text = "10.1\nunclassified report line\n10.2"
+        nonfinite = "10.1\nmeasurement nan"
+        mismatched = "10.1\n10.2\n10.3"
+
+        with self.assertRaisesRegex(ValueError, "contains 2 numbers"):
+            parse_paired_unstructured_measurements(
+                StringIO(two_numbers), StringIO("10.0\n10.1")
+            )
+        with self.assertRaisesRegex(ValueError, "text between measurements"):
+            parse_paired_unstructured_measurements(
+                StringIO(interstitial_text), StringIO("10.0\n10.1")
+            )
+        with self.assertRaisesRegex(ValueError, "finite measurement"):
+            parse_paired_unstructured_measurements(
+                StringIO(nonfinite), StringIO("10.0\n10.1")
+            )
+        with self.assertRaisesRegex(ValueError, "Mismatched lengths"):
+            parse_paired_unstructured_measurements(
+                StringIO(mismatched), StringIO("10.0\n10.1")
+            )
+
     def test_legacy_numeric_parser_rejects_text_and_nonfinite_rows(self) -> None:
         with self.assertRaisesRegex(ValueError, "System A line 2 is not a numeric"):
             parse_paired_measurements(StringIO("1.0\nheader\n2.0"), StringIO("1.0\n2.0"))
         with self.assertRaisesRegex(ValueError, "System B line 2 must contain a finite"):
             parse_paired_measurements(StringIO("1.0\n2.0"), StringIO("1.0\nnan"))
+
+    def test_legacy_numeric_parser_accepts_utf8_bom(self) -> None:
+        paired_df, system_a, system_b, _ = parse_paired_measurements(
+            StringIO("\ufeff0.3540\n0.3541\n"), StringIO("0.3539\n0.3541\n")
+        )
+
+        self.assertEqual(system_a, [0.3540, 0.3541])
+        self.assertEqual(system_b, [0.3539, 0.3541])
+        self.assertEqual(len(paired_df), 2)
 
     def test_parses_consistent_characteristics_from_report_blocks(self) -> None:
         data = "\n".join(

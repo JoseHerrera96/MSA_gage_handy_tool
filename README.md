@@ -187,6 +187,19 @@ Place the raw measurement input and run:
 python cli/Type_1_gage_handy_tool.py
 ```
 
+In Streamlit, the Type 1 workflow offers two input layouts. The existing layout
+uses one file with complete `BEGIN`/`END` report blocks. The delimiter-free
+layout uses one file with consecutive reports and no required markers. Each
+measurement row must be tab-separated as
+`<characteristic><TAB><measurement><TAB><nominal><TAB><upper tolerance><TAB><lower tolerance>`;
+extra trailing columns are ignored. Headers and `PATTERN:`, `DISPLAY:`, or
+`UNIT:` metadata may appear between reports. Each report must contain the same
+characteristics in the same order; a repeated characteristic starts the next
+report. The app displays the number of complete cycles detected and rejects
+incomplete or inconsistent cycles. The bundled `gage_type1/raw/RAW DATA.txt`
+contains 120 complete reports followed by a truncated report; the parser rejects
+that final incomplete report rather than silently dropping or completing it.
+
 #### Paired T-Test
 Place the paired measurement files and run:
 
@@ -219,6 +232,18 @@ python cli/Gage_RR_tool.py --report-order operator-major
 
 The Streamlit workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags.
 
+Streamlit also supports grouped uploads while keeping the same crossed design:
+
+- **10 files, one per part:** 9 reports per file; 3 trials for each of the 3 operators.
+- **3 files, one per operator:** 30 reports per file; 3 trials for each of the 10 parts.
+
+Characteristic tags are not fixed across source files. They may be names such as
+`Measurement1`–`Measurement3` or feature codes; each report must contain a
+consistent characteristic set. The parser assigns Part, Operator, and Trial
+from the selected upload mode and report order. The bundled
+`gage_rr/raw/GAGE RR DATA_backup.txt` is not a complete study: it contains only
+42 reports with duplicate `Measurement` tags and is rejected by validation.
+
 After processing, the Gage R&R workflow opens with a study overview that summarizes the verdict, variation components, NDC, and interaction result for every characteristic. Download the overview on its own or as the first HTML file in the all-reports ZIP.
 
 For the Paired T-Test, the CLI reads `PAIRED DATA SYSTEM A.txt` and
@@ -231,6 +256,21 @@ and `UNIT:` lines are allowed inside blocks. Both systems need at least two
 blocks, the same block count and characteristic labels, and corresponding
 observations in the same block order. Multi-characteristic studies open with an
 overview and can export it with the per-characteristic dashboards.
+Characteristic labels can vary by source; corresponding blocks in System A
+and System B must use the same labels in the same order. A leading UTF-8 BOM
+is accepted in numeric files. The bundled OGP pair has 10 blocks and 8
+characteristics per system, with matching tags and within-block order.
+
+In Streamlit, Paired T-Test also offers an **Unstructured report text** mode
+for two files that do not follow the numeric-only or complete block formats.
+Each measurement line in this mode must contain exactly one finite number;
+text-only headers/footers and `BEGIN`/`END` markers are ignored. Lines with
+multiple numbers, non-finite values, or unclassified text between measurements
+are rejected to avoid silently shifting pairs. Values pair by file order, and
+both files must yield the same number of measurements. This mode handles one
+measurement series per system; use the structured block format for
+multi-characteristic studies. The paired-observation preview includes each
+measurement's original line number in its source file.
 
 ## Notes
 

@@ -16,6 +16,7 @@ if str(SRC_DIR) not in sys.path:
 
 from gage_tracer.data_parser import transform_raw_data, transform_gage_rr_data
 from gage_tracer.data_parser import paired_input_has_blocks
+from gage_tracer.data_parser import transform_gage_rr_grouped_data
 from gage_tracer.calculations import (
     calculate_gage_rr_by_characteristic,
 )
@@ -37,6 +38,7 @@ from gage_tracer.paired_ttest import (
     create_paired_ttest_html_zip,
     parse_paired_multicharacteristic_measurements,
     parse_paired_measurements,
+    parse_paired_unstructured_measurements,
     calculate_paired_ttest_metrics,
     create_paired_ttest_dashboard,
 )
@@ -335,8 +337,32 @@ def _render_type1_page() -> None:
     st.header("Type 1 Gage Study")
     with st.container():
         st.markdown("#### Step 1 — Upload raw data")
-        st.info("Upload a raw data text file to start the Type 1 Gage Study.")
-        uploaded = st.file_uploader("Upload RAW DATA.txt", type=["txt"], key="type1_raw")
+        st.info("Upload one text file containing repeated measurements of the same reference part.")
+        input_format_label = st.radio(
+            "How are the reports separated?",
+            options=("BEGIN/END markers", "Periodic reports without markers"),
+            horizontal=True,
+            key="type1_input_format",
+        )
+        input_format = "blocks" if input_format_label == "BEGIN/END markers" else "periodic"
+        if input_format == "blocks":
+            st.caption(
+                "One file with complete BEGIN/END report blocks. Each report "
+                "must contain the same measurement characteristics."
+            )
+        else:
+            st.caption(
+                "One file with consecutive reports and no required BEGIN/END markers. "
+                "Measurement rows must be tab-separated as characteristic, measurement, "
+                "nominal, upper tolerance, lower tolerance. Headers and PATTERN/DISPLAY/UNIT "
+                "metadata may be present. Every report must repeat the same characteristics "
+                "in the same order; a repeated characteristic starts the next report."
+            )
+        uploaded = st.file_uploader(
+            "Upload Type 1 data (.txt)",
+            type=["txt"],
+            key=f"type1_raw_{input_format}",
+        )
 
     st.divider()
 
@@ -346,7 +372,9 @@ def _render_type1_page() -> None:
     try:
         with st.spinner("Processing Type 1 Gage Study data..."):
             buffer = _uploaded_to_textio(uploaded)
-            df = transform_raw_data(buffer, output_file=None)
+            df = transform_raw_data(
+                buffer, output_file=None, input_format=input_format
+            )
             summary = build_type1_summary(df)
 
         if not summary:
@@ -359,6 +387,20 @@ def _render_type1_page() -> None:
         return
 
     summary_df = pd.DataFrame(summary)
+    observation_counts = sorted(
+        int(count) for count in summary_df["Observations"].unique()
+    )
+    if len(observation_counts) == 1:
+        st.caption(
+            f"Detected {observation_counts[0]} complete measurement cycles "
+            "for each characteristic."
+        )
+    else:
+        st.warning(
+            "Characteristics have different observation counts: "
+            + ", ".join(map(str, observation_counts))
+            + ". Check that each report contains the same characteristics."
+        )
     pass_threshold = TYPE1_CAPABILITY_THRESHOLD
     mean_cg = summary_df["Cg"].mean()
     mean_cgk = summary_df["Cgk"].mean()
@@ -421,16 +463,41 @@ def _render_paired_page() -> None:
     st.header("Paired t Test for the Mean of Two Systems")
     with st.container():
         st.markdown("#### Step 1 — Upload paired system measurements")
-        st.caption(
-            "Single: one finite number per nonblank line. Multi: matching :BEGIN/:END "
-            "blocks; each row is label, TAB, finite measurement (extra columns ignored). "
-            "Labels must match; blocks pair by file order."
+        input_mode = st.radio(
+            "How are the reports formatted?",
+            options=("Structured numeric or BEGIN/END reports", "Unstructured report text"),
+            horizontal=True,
+            key="paired_input_mode",
         )
+        if input_mode == "Unstructured report text":
+            st.caption(
+                "Upload one file per system. Text-only headers/footers and BEGIN/END "
+                "markers are ignored. Each measurement line must contain exactly one "
+                "finite number; lines with multiple numbers or unclassified text between "
+                "measurements are rejected. Values are paired by order, so both files "
+                "must contain the same observations in the same order."
+            )
+            input_mode_key = "unstructured"
+        else:
+            st.caption(
+                "Upload one file per system. Use one finite number per line, or matching "
+                ":BEGIN/:END blocks with tab-separated characteristic and measurement "
+                "rows. Block labels must match; observations pair by block order."
+            )
+            input_mode_key = "structured"
         left, right = st.columns(2)
         with left:
-            file_a = st.file_uploader("System A measurements", type=["txt"], key="paired_a")
+            file_a = st.file_uploader(
+                "System A measurements",
+                type=["txt"],
+                key=f"paired_a_{input_mode_key}",
+            )
         with right:
-            file_b = st.file_uploader("System B measurements", type=["txt"], key="paired_b")
+            file_b = st.file_uploader(
+                "System B measurements",
+                type=["txt"],
+                key=f"paired_b_{input_mode_key}",
+            )
 
     st.divider()
 
@@ -448,93 +515,11 @@ def _render_paired_page() -> None:
             if "PAIRED DATA " in system_b_name:
                 system_b_name = system_b_name.replace("PAIRED DATA ", "")
 
-            has_blocks_a = paired_input_has_blocks(_uploaded_to_textio(file_a))
-            has_blocks_b = paired_input_has_blocks(_uploaded_to_textio(file_b))
-            if has_blocks_a != has_blocks_b:
-                raise ValueError("Both systems must use the same paired input format.")
-
-            if has_blocks_a:
-                analyses = parse_paired_multicharacteristic_measurements(
-                    _uploaded_to_textio(file_a), _uploaded_to_textio(file_b)
-                )
-                for analysis in analyses.values():
-                    analysis["metrics"] = calculate_paired_ttest_metrics(
-                        analysis["system_a"], analysis["system_b"]
-                    )
-                    analysis["diagnostics"] = calculate_paired_ttest_diagnostics(
-                        analysis["system_a"],
-                        analysis["system_b"],
-                        system_a_name=system_a_name,
-                        system_b_name=system_b_name,
-                    )
-                overview = build_paired_ttest_overview_dataframe(analyses)
-                overview_label = "Study Overview"
-                selected_report = st.selectbox(
-                    "Paired T-Test report",
-                    options=[overview_label, *analyses],
-                    key=f"paired_report_{file_a.file_id}_{file_b.file_id}",
-                )
-                if selected_report == overview_label:
-                    holm_values = overview["Holm P-Value"]
-                    overview_cols = st.columns(3)
-                    overview_cols[0].metric("Characteristics", len(overview))
-                    overview_cols[1].metric(
-                        "Significant after Holm", int((holm_values < 0.05).sum())
-                    )
-                    overview_cols[2].metric(
-                        "With diagnostic warnings",
-                        int(
-                            (
-                                (overview["Outlier Status"] != "PASS")
-                                | (overview["Normality"] != "PASS")
-                            ).sum()
-                        ),
-                    )
-                    st.dataframe(overview, use_container_width=True, hide_index=True)
-                    st.caption(
-                        "Holm-adjusted p-values account for testing multiple characteristics. "
-                        "No significant difference detected is not evidence that the systems are equivalent."
-                    )
-                    with st.container():
-                        st.markdown("#### Export overview")
-                        overview_html = create_paired_ttest_html_overview(
-                            overview, system_a_name, system_b_name
-                        )
-                        download_cols = st.columns(2)
-                        download_cols[0].download_button(
-                            label="Download study overview HTML",
-                            data=overview_html,
-                            file_name="Paired_T_Test_Study_Overview.html",
-                            mime="text/html",
-                        )
-                        download_cols[1].download_button(
-                            label="Download all reports (.zip)",
-                            data=lambda: create_paired_ttest_html_zip(
-                                analyses, system_a_name, system_b_name
-                            ),
-                            file_name="Paired_T_Test_HTML_Reports.zip",
-                            mime="application/zip",
-                            icon=":material/archive:",
-                        )
-                        st.caption(
-                            "The ZIP is built on demand. Keep this page open until the download starts."
-                        )
-                    return
-
-                selected_analysis = analyses[selected_report]
-                selected_characteristic = selected_report
-                paired_df = selected_analysis["paired_df"]
-                system_a = selected_analysis["system_a"]
-                system_b = selected_analysis["system_b"]
-                differences = selected_analysis["differences"]
-                metrics = selected_analysis["metrics"]
-                diagnostics = selected_analysis["diagnostics"]
-                st.subheader(f"Characteristic: {selected_report}")
-            else:
+            if input_mode == "Unstructured report text":
                 buffer_a = _uploaded_to_textio(file_a)
                 buffer_b = _uploaded_to_textio(file_b)
-                paired_df, system_a, system_b, differences = parse_paired_measurements(
-                    buffer_a, buffer_b
+                paired_df, system_a, system_b, differences = (
+                    parse_paired_unstructured_measurements(buffer_a, buffer_b)
                 )
                 metrics = calculate_paired_ttest_metrics(system_a, system_b)
                 diagnostics = calculate_paired_ttest_diagnostics(
@@ -543,9 +528,105 @@ def _render_paired_page() -> None:
                     system_a_name=system_a_name,
                     system_b_name=system_b_name,
                 )
+            else:
+                has_blocks_a = paired_input_has_blocks(_uploaded_to_textio(file_a))
+                has_blocks_b = paired_input_has_blocks(_uploaded_to_textio(file_b))
+                if has_blocks_a != has_blocks_b:
+                    raise ValueError("Both systems must use the same paired input format.")
+
+                if has_blocks_a:
+                    analyses = parse_paired_multicharacteristic_measurements(
+                        _uploaded_to_textio(file_a), _uploaded_to_textio(file_b)
+                    )
+                    for analysis in analyses.values():
+                        analysis["metrics"] = calculate_paired_ttest_metrics(
+                            analysis["system_a"], analysis["system_b"]
+                        )
+                        analysis["diagnostics"] = calculate_paired_ttest_diagnostics(
+                            analysis["system_a"],
+                            analysis["system_b"],
+                            system_a_name=system_a_name,
+                            system_b_name=system_b_name,
+                        )
+                    overview = build_paired_ttest_overview_dataframe(analyses)
+                    overview_label = "Study Overview"
+                    selected_report = st.selectbox(
+                        "Paired T-Test report",
+                        options=[overview_label, *analyses],
+                        key=f"paired_report_{file_a.file_id}_{file_b.file_id}",
+                    )
+                    if selected_report == overview_label:
+                        holm_values = overview["Holm P-Value"]
+                        overview_cols = st.columns(3)
+                        overview_cols[0].metric("Characteristics", len(overview))
+                        overview_cols[1].metric(
+                            "Significant after Holm", int((holm_values < 0.05).sum())
+                        )
+                        overview_cols[2].metric(
+                            "With diagnostic warnings",
+                            int(
+                                (
+                                    (overview["Outlier Status"] != "PASS")
+                                    | (overview["Normality"] != "PASS")
+                                ).sum()
+                            ),
+                        )
+                        st.dataframe(overview, use_container_width=True, hide_index=True)
+                        st.caption(
+                            "Holm-adjusted p-values account for testing multiple characteristics. "
+                            "No significant difference detected is not evidence that the systems are equivalent."
+                        )
+                        with st.container():
+                            st.markdown("#### Export overview")
+                            overview_html = create_paired_ttest_html_overview(
+                                overview, system_a_name, system_b_name
+                            )
+                            download_cols = st.columns(2)
+                            download_cols[0].download_button(
+                                label="Download study overview HTML",
+                                data=overview_html,
+                                file_name="Paired_T_Test_Study_Overview.html",
+                                mime="text/html",
+                            )
+                            download_cols[1].download_button(
+                                label="Download all reports (.zip)",
+                                data=lambda: create_paired_ttest_html_zip(
+                                    analyses, system_a_name, system_b_name
+                                ),
+                                file_name="Paired_T_Test_HTML_Reports.zip",
+                                mime="application/zip",
+                                icon=":material/archive:",
+                            )
+                            st.caption(
+                                "The ZIP is built on demand. Keep this page open until the download starts."
+                            )
+                        return
+
+                    selected_analysis = analyses[selected_report]
+                    selected_characteristic = selected_report
+                    paired_df = selected_analysis["paired_df"]
+                    system_a = selected_analysis["system_a"]
+                    system_b = selected_analysis["system_b"]
+                    differences = selected_analysis["differences"]
+                    metrics = selected_analysis["metrics"]
+                    diagnostics = selected_analysis["diagnostics"]
+                    st.subheader(f"Characteristic: {selected_report}")
+                else:
+                    buffer_a = _uploaded_to_textio(file_a)
+                    buffer_b = _uploaded_to_textio(file_b)
+                    paired_df, system_a, system_b, differences = parse_paired_measurements(
+                        buffer_a, buffer_b
+                    )
+                    metrics = calculate_paired_ttest_metrics(system_a, system_b)
+                    diagnostics = calculate_paired_ttest_diagnostics(
+                        system_a,
+                        system_b,
+                        system_a_name=system_a_name,
+                        system_b_name=system_b_name,
+                    )
 
     except ValueError as exc:
-        st.error("Unable to align paired data. Verify the input format and report blocks.")
+        st.error("Unable to align paired data. Verify the selected input format and observation order.")
         st.warning(str(exc))
         return
     except Exception as exc:
@@ -556,6 +637,13 @@ def _render_paired_page() -> None:
     p_value = float(metrics["P_Value"])
     p_value_label = f"{p_value:.6f}"
     alpha_comparison = f"p {'<' if p_value < 0.05 else '>'} 0.05"
+
+    with st.expander("Paired observations preview", expanded=False):
+        st.dataframe(paired_df.head(10), use_container_width=True, hide_index=True)
+        if len(paired_df) > 10:
+            st.caption(f"Showing the first 10 of {len(paired_df)} paired observations.")
+        if input_mode == "Unstructured report text":
+            st.caption("Source line columns identify the original measurement row in each file.")
 
     with st.container():
         st.markdown("#### Key results")
@@ -714,35 +802,109 @@ def _render_gage_rr_page() -> None:
             f"{GRR_DESIGN.parts} parts x {GRR_DESIGN.operators} operators x "
             f"{GRR_DESIGN.trials_per_part} trials = {GRR_DESIGN.report_blocks} report blocks."
         )
-        st.caption(
-            "Input layout is detected automatically: BEGIN/END blocks or continuous "
-            "part-tagged measurements. Headers and footers are ignored. For untagged "
-            "reports, the sequence order determines the Part/Operator/Trial assignment."
+        input_mode = st.radio(
+            "How will you provide the reports?",
+            options=(
+                "One file · 90 reports",
+                "10 files · one per part",
+                "3 files · one per operator",
+            ),
+            horizontal=True,
+            key="grr_input_mode",
         )
-        report_order_label = st.selectbox(
-            "Untagged report sequence",
-            options=("Part → Operator → Trial", "Operator → Part → Trial"),
-            help="Choose the nesting order used when the report blocks do not identify the study factors.",
-        )
-        report_order = (
-            "part-major" if report_order_label.startswith("Part") else "operator-major"
-        )
-        uploaded = st.file_uploader("Upload GAGE RR DATA.txt", type=["txt"], key="grr_raw")
+        uploaded = None
+        grouped_uploads: list[tuple[str, Any]] = []
+        report_order = "part-major"
+
+        if input_mode == "One file · 90 reports":
+            st.caption(
+                "Upload all 90 reports in one file. For untagged reports, choose "
+                "how the sequence maps to parts and operators."
+            )
+            report_order_label = st.selectbox(
+                "Untagged report sequence",
+                options=("Part → Operator → Trial", "Operator → Part → Trial"),
+                help=(
+                    "Part → Operator → Trial: reports 1–9 are Part 1, grouped in "
+                    "threes by operator. Operator → Part → Trial: reports 1–30 "
+                    "are Operator 1, grouped in threes by part."
+                ),
+            )
+            report_order = (
+                "part-major" if report_order_label.startswith("Part") else "operator-major"
+            )
+            uploaded = st.file_uploader(
+                "Upload GAGE RR DATA.txt", type=["txt"], key="grr_raw"
+            )
+        elif input_mode == "10 files · one per part":
+            st.caption(
+                "Upload 10 files, one per part. Each file must contain 9 reports: "
+                "3 trials for Operator 1, then 3 for Operator 2, then 3 for Operator 3."
+            )
+            for part in range(1, GRR_DESIGN.parts + 1):
+                part_file = st.file_uploader(
+                    f"Part {part} · 9 reports",
+                    type=["txt"],
+                    key=f"grr_part_file_{part}",
+                )
+                grouped_uploads.append((f"Part {part}", part_file))
+        else:
+            st.caption(
+                "Upload 3 files, one per operator. Each file must contain 30 reports: "
+                "3 trials for Part 1, then 3 for Part 2, continuing through Part 10."
+            )
+            for operator in range(1, GRR_DESIGN.operators + 1):
+                operator_file = st.file_uploader(
+                    f"Operator {operator} · 30 reports",
+                    type=["txt"],
+                    key=f"grr_operator_file_{operator}",
+                )
+                grouped_uploads.append((f"Operator {operator}", operator_file))
 
     st.divider()
 
-    if uploaded is None:
-        return
+    if input_mode == "One file · 90 reports":
+        if uploaded is None:
+            return
+    else:
+        missing_groups = [label for label, file in grouped_uploads if file is None]
+        if missing_groups:
+            if len(missing_groups) == len(grouped_uploads):
+                st.info("Upload every file for the selected Gage R&R input format.")
+            else:
+                st.warning(
+                    "Still required: " + ", ".join(missing_groups) + "."
+                )
+            return
 
     try:
         with st.spinner("Processing Gage R&R Crossed data..."):
-            buffer = _uploaded_to_textio(uploaded)
-            df = transform_gage_rr_data(
-                buffer,
-                output_file=None,
-                input_format="auto",
-                report_order=report_order,
-            )
+            if uploaded is not None:
+                buffer = _uploaded_to_textio(uploaded)
+                df = transform_gage_rr_data(
+                    buffer,
+                    output_file=None,
+                    input_format="auto",
+                    report_order=report_order,
+                )
+                upload_ids = [str(getattr(uploaded, "file_id", uploaded.name))]
+            else:
+                group_by = "part" if input_mode == "10 files · one per part" else "operator"
+                grouped_sources = [
+                    (f"{label} ({file.name})", _uploaded_to_textio(file))
+                    for label, file in grouped_uploads
+                    if file is not None
+                ]
+                df = transform_gage_rr_grouped_data(
+                    grouped_sources,
+                    group_by=group_by,
+                    input_format="auto",
+                )
+                upload_ids = [
+                    str(getattr(file, "file_id", file.name))
+                    for _, file in grouped_uploads
+                    if file is not None
+                ]
             all_results = calculate_gage_rr_by_characteristic(df)
 
     except ValueError as exc:
@@ -758,7 +920,7 @@ def _render_gage_rr_page() -> None:
     report_choice = st.selectbox(
         "Gage R&R report",
         options=[overview_label, *all_results],
-        key=f"grr_report_{uploaded.file_id}",
+        key=f"grr_report_{input_mode}_{'_'.join(upload_ids)}",
     )
 
     if report_choice == overview_label:

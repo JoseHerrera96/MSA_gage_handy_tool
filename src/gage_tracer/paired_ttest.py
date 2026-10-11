@@ -13,6 +13,7 @@ Design Philosophy:
 from __future__ import annotations
 
 import math
+import re
 import zipfile
 from io import BytesIO, StringIO, TextIOBase
 from pathlib import Path
@@ -41,22 +42,139 @@ def _read_text_lines(input_file: _InputSource) -> list[str]:
     """Read text lines from a path or an in-memory text/binary stream."""
     if isinstance(input_file, (Path, str)):
         with open(input_file, "r", encoding="utf-8") as fh:
-            return [line.rstrip("\n") for line in fh]
-
-    if hasattr(input_file, "read"):
+            lines = [line.rstrip("\n") for line in fh]
+    elif hasattr(input_file, "read"):
         if isinstance(input_file, (StringIO, TextIOBase)):
             try:
                 input_file.seek(0)
             except Exception:
                 pass
-            return [line.rstrip("\n") for line in input_file]
+            lines = [line.rstrip("\n") for line in input_file]
+        else:
+            raw = input_file.read()
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", errors="replace")
+            lines = raw.splitlines()
+    else:
+        raise TypeError("input_file must be a path or a text/binary stream")
 
-        raw = input_file.read()
-        if isinstance(raw, bytes):
-            raw = raw.decode("utf-8", errors="replace")
-        return raw.splitlines()
+    if lines:
+        lines[0] = lines[0].lstrip("\ufeff")
+    return lines
 
-    raise TypeError("input_file must be a path or a text/binary stream")
+
+_PAIRED_NUMBER_PATTERN = re.compile(
+    r"(?<![\w.])[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?(?![\w.])"
+)
+
+
+def _extract_unstructured_paired_values(
+    input_file: _InputSource,
+    system_name: str,
+) -> list[tuple[float, int]]:
+    """Extract one numeric value per data line while guarding pair order."""
+    values: list[tuple[float, int]] = []
+    measurement_line_numbers: list[int] = []
+    unclassified_lines: list[int] = []
+    identifier_words = {
+        "sample", "samples", "observation", "observations", "part", "operator",
+        "trial", "report", "run", "system", "a", "b", "date", "time",
+    }
+    header_words = identifier_words | {
+        "characteristic", "dimension", "measurement", "measurements", "measured",
+        "value", "values", "result", "results", "reading", "readings", "unit",
+        "mm", "cm", "um", "micron", "microns", "in", "inch", "inches",
+    }
+    measurement_words = {"measurement", "measurements", "measured", "value", "reading", "result"}
+
+    lines = _read_text_lines(input_file)
+    for line_number, raw_line in enumerate(lines, start=1):
+        line = raw_line.strip().lstrip("\ufeff")
+        if not line:
+            continue
+        marker_text = line.lstrip('"').strip().lstrip(":").strip()
+        if re.match(r"^(BEGIN|END)(?:\b|[\"\t\s])", marker_text, re.IGNORECASE):
+            continue
+        if line.upper().startswith(("PATTERN:", "DISPLAY:", "UNIT:")):
+            continue
+
+        words = re.findall(r"[A-Za-z]+", line.casefold())
+        word_set = set(words)
+        number_matches = list(_PAIRED_NUMBER_PATTERN.finditer(line))
+        if re.search(r"(?<!\w)[+-]?(?:nan|inf(?:inity)?)(?!\w)", line, re.IGNORECASE):
+            raise ValueError(
+                f"{system_name} line {line_number} must contain a finite measurement."
+            )
+        if not number_matches:
+            if word_set and word_set <= header_words:
+                continue
+            unclassified_lines.append(line_number)
+            continue
+        if len(number_matches) != 1:
+            raise ValueError(
+                f"{system_name} line {line_number} contains {len(number_matches)} numbers; "
+                "the unstructured format requires exactly one measurement per data line."
+            )
+
+        if word_set and word_set <= identifier_words:
+            continue
+        try:
+            value = float(number_matches[0].group())
+        except ValueError as exc:
+            raise ValueError(
+                f"{system_name} line {line_number} contains an invalid measurement."
+            ) from exc
+        if not math.isfinite(value):
+            raise ValueError(
+                f"{system_name} line {line_number} must contain a finite measurement."
+            )
+        values.append((value, line_number))
+        measurement_line_numbers.append(line_number)
+
+    if values and unclassified_lines:
+        internal_lines = [
+            line_number
+            for line_number in unclassified_lines
+            if measurement_line_numbers[0] < line_number < measurement_line_numbers[-1]
+        ]
+        if internal_lines:
+            raise ValueError(
+                f"{system_name} line {internal_lines[0]} contains text between "
+                "measurements that cannot be classified as a header. Remove it or "
+                "use the structured input format."
+            )
+    if len(values) < 2:
+        raise ValueError(f"{system_name} must contain at least two paired measurements.")
+    return values
+
+
+def parse_paired_unstructured_measurements(
+    file_a: _InputSource,
+    file_b: _InputSource,
+) -> tuple[pd.DataFrame, list[float], list[float], list[float]]:
+    """Extract one finite measurement per data line from each text report."""
+    system_a_records = _extract_unstructured_paired_values(file_a, "System A")
+    system_b_records = _extract_unstructured_paired_values(file_b, "System B")
+    if len(system_a_records) != len(system_b_records):
+        raise ValueError(
+            f"Mismatched lengths: System A has {len(system_a_records)} values, "
+            f"System B has {len(system_b_records)} values."
+        )
+
+    system_a_vals = [value for value, _ in system_a_records]
+    system_b_vals = [value for value, _ in system_b_records]
+    differences = [value_a - value_b for value_a, value_b in zip(system_a_vals, system_b_vals)]
+    paired_df = pd.DataFrame(
+        {
+            "Observation": range(1, len(system_a_vals) + 1),
+            "System_A": system_a_vals,
+            "System_B": system_b_vals,
+            "Difference": differences,
+            "System_A_Source_Line": [line for _, line in system_a_records],
+            "System_B_Source_Line": [line for _, line in system_b_records],
+        }
+    )
+    return paired_df, system_a_vals, system_b_vals, differences
 
 
 def parse_paired_measurements(

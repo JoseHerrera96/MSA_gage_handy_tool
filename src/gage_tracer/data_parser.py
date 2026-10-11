@@ -140,6 +140,132 @@ def _parse_raw_data(
         all_repetitions.append(current_repetition)
 
     return all_repetitions, dimension_specs
+
+
+def _parse_periodic_type1_data(
+    input_file: _InputSource,
+) -> tuple[list[dict[str, float]], dict[str, dict[str, float]]]:
+    """Parse delimiter-free Type 1 reports using repeated dimension cycles."""
+    all_repetitions: list[dict[str, float]] = []
+    dimension_specs: dict[str, dict[str, float]] = {}
+    expected_order: tuple[str, ...] | None = None
+    current_repetition: dict[str, float] = {}
+    current_specs: dict[str, dict[str, float]] = {}
+    report_number = 0
+
+    def finish_report() -> None:
+        nonlocal expected_order, current_repetition, current_specs, report_number
+        if not current_repetition:
+            return
+        report_number += 1
+        dimensions = tuple(current_repetition)
+        if len(set(dimensions)) != len(dimensions):
+            raise ValueError(f"Report {report_number} contains a duplicated characteristic.")
+        if expected_order is None:
+            expected_order = dimensions
+        elif dimensions != expected_order:
+            raise ValueError(
+                f"Report {report_number} does not match the characteristic order "
+                "of the first complete report. Check for missing, duplicated, "
+                "or out-of-order measurement rows."
+            )
+        for dimension, spec in current_specs.items():
+            if dimension in dimension_specs and dimension_specs[dimension] != spec:
+                raise ValueError(
+                    f"Report {report_number} has different nominal/tolerance "
+                    f"specifications for {dimension!r}."
+                )
+            dimension_specs.setdefault(dimension, spec)
+        all_repetitions.append(current_repetition)
+        current_repetition = {}
+        current_specs = {}
+
+    header_tokens = {
+        "characteristic",
+        "dimension",
+        "gage item",
+        "measurement",
+        "measured value",
+        "nominal",
+        "upper tol",
+        "lower tol",
+    }
+
+    with _open_text_input(input_file) as fh:
+        for line_number, raw_line in enumerate(fh, start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+            first_field = line.split("\t", maxsplit=1)[0].strip().strip('"')
+            normalized_first = first_field.casefold()
+            if (
+                normalized_first.startswith((":begin", ":end", "begin", "end", "pattern:", "display:", "unit:"))
+                or normalized_first in header_tokens
+                or "\t" not in line
+            ):
+                continue
+
+            parts = line.split("\t")
+            if len(parts) < 5:
+                if parts[0].strip().startswith('"'):
+                    raise ValueError(
+                        f"Line {line_number}: expected characteristic, measurement, "
+                        "nominal, upper tolerance, and lower tolerance fields."
+                    )
+                continue
+
+            dimension = parts[0].strip().strip('"').replace("_OUT1", "")
+            if not dimension:
+                raise ValueError(f"Line {line_number}: characteristic label is empty.")
+            try:
+                measurement, nominal, upper_tol, lower_tol = (
+                    float(parts[index]) for index in range(1, 5)
+                )
+            except ValueError as exc:
+                if any(token.casefold() in header_tokens for token in parts[:5]):
+                    continue
+                raise ValueError(
+                    f"Line {line_number}: invalid numeric field for {dimension!r}."
+                ) from exc
+            if not all(math.isfinite(value) for value in (measurement, nominal, upper_tol, lower_tol)):
+                raise ValueError(
+                    f"Line {line_number}: measurement and specification values must be finite."
+                )
+
+            if dimension in current_repetition:
+                finish_report()
+            current_repetition[dimension] = measurement
+            current_specs[dimension] = {
+                "nominal": nominal,
+                "upper_tol": upper_tol,
+                "lower_tol": lower_tol,
+            }
+
+    finish_report()
+    if not all_repetitions:
+        raise ValueError("No periodic Type 1 measurement reports were detected.")
+    return all_repetitions, dimension_specs
+
+
+def _validate_type1_block_markers(raw_text: str) -> None:
+    """Require balanced, sequential BEGIN/END markers for explicit-block mode."""
+    in_block = False
+    block_count = 0
+    for line_number, line in enumerate(raw_text.splitlines(), start=1):
+        normalized = line.lstrip("\x1a").strip().strip('"').upper()
+        if normalized.startswith((":BEGIN", "BEGIN")):
+            if in_block:
+                raise ValueError(f"Line {line_number}: BEGIN appeared before the prior report ended.")
+            in_block = True
+        elif normalized.startswith((":END", "END")):
+            if not in_block:
+                raise ValueError(f"Line {line_number}: END has no matching BEGIN.")
+            in_block = False
+            block_count += 1
+    if in_block:
+        raise ValueError("Input ended before the final END marker.")
+    if not block_count:
+        raise ValueError("No BEGIN/END report blocks found; choose the delimiter-free format instead.")
 def _compute_dimension_statistics(
     df: pd.DataFrame,
     specs: dict[str, dict[str, float]],
@@ -248,6 +374,7 @@ def _format_output_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 def transform_raw_data(
     input_file: _InputSource,
     output_file: Path | None = None,
+    input_format: str = "auto",
 ) -> pd.DataFrame:
     """Convert a raw data source into a structured TSV or return a DataFrame.
 
@@ -258,11 +385,23 @@ def transform_raw_data(
     Args:
         input_file: Path, filename, or in-memory text/binary stream.
         output_file: Where to write the resulting TSV, or ``None`` to skip.
+        input_format: ``auto`` for the legacy parser, ``blocks`` for explicit
+            BEGIN/END reports, or ``periodic`` for delimiter-free repeated cycles.
 
     Returns:
         The parsed and formatted DataFrame.
     """
-    all_repetitions, specs = _parse_raw_data(input_file)
+    if input_format not in {"auto", "blocks", "periodic"}:
+        raise ValueError("input_format must be 'auto', 'blocks', or 'periodic'.")
+    if input_format == "periodic":
+        all_repetitions, specs = _parse_periodic_type1_data(input_file)
+    elif input_format == "blocks":
+        with _open_text_input(input_file) as fh:
+            raw_text = fh.read()
+        _validate_type1_block_markers(raw_text)
+        all_repetitions, specs = _parse_raw_data(StringIO(raw_text))
+    else:
+        all_repetitions, specs = _parse_raw_data(input_file)
     df = pd.DataFrame(all_repetitions)
     stats_df = _compute_dimension_statistics(df, specs)
     combined_df = _build_interleaved_output(df, stats_df)
@@ -582,6 +721,88 @@ def transform_gage_rr_data(
         print(f"Data saved to '{output_file}'")
 
     return df
+
+
+def transform_gage_rr_grouped_data(
+    files: list[tuple[str, _InputSource]],
+    group_by: str,
+    input_format: str = "auto",
+) -> pd.DataFrame:
+    """Normalize Gage R&R reports supplied one file per part or operator.
+
+    Files are ordered by their group number (Part 1..10 or Operator 1..3).
+    Within each file, reports are ordered by the remaining crossed factors.
+    """
+    if group_by not in {"part", "operator"}:
+        raise ValueError("group_by must be 'part' or 'operator'.")
+
+    group_count = GRR_DESIGN.parts if group_by == "part" else GRR_DESIGN.operators
+    reports_per_file = (
+        GRR_DESIGN.operators * GRR_DESIGN.trials_per_part
+        if group_by == "part"
+        else GRR_DESIGN.parts * GRR_DESIGN.trials_per_part
+    )
+    if len(files) != group_count:
+        raise ValueError(
+            f"The {group_by}-grouped format requires exactly {group_count} files; "
+            f"received {len(files)}."
+        )
+
+    normalized_rows: list[dict[str, object]] = []
+    expected_characteristics: set[str] | None = None
+
+    for group_index, (file_name, input_file) in enumerate(files, start=1):
+        try:
+            records = _parse_gage_rr_raw_data(input_file, input_format=input_format)
+        except ValueError as exc:
+            raise ValueError(f"{file_name}: {exc}") from exc
+
+        report_numbers = sorted({int(record["Report"]) for record in records})
+        if len(report_numbers) != reports_per_file:
+            raise ValueError(
+                f"{file_name}: expected {reports_per_file} report blocks, "
+                f"found {len(report_numbers)}."
+            )
+
+        characteristics = {str(record["Characteristic"]) for record in records}
+        if expected_characteristics is None:
+            expected_characteristics = characteristics
+        elif characteristics != expected_characteristics:
+            missing = sorted(expected_characteristics - characteristics)
+            unexpected = sorted(characteristics - expected_characteristics)
+            raise ValueError(
+                f"{file_name}: characteristic set does not match the other files. "
+                f"Missing: {missing or 'none'}; unexpected: {unexpected or 'none'}."
+            )
+
+        for record in records:
+            local_report = int(record["Report"])
+            report_position = local_report - 1
+            if group_by == "part":
+                part_number = group_index
+                operator_number = report_position // GRR_DESIGN.trials_per_part + 1
+            else:
+                part_number = report_position // GRR_DESIGN.trials_per_part + 1
+                operator_number = group_index
+            trial_number = report_position % GRR_DESIGN.trials_per_part + 1
+            upper_tol = float(record["Upper Tol"])
+            lower_tol = float(record["Lower Tol"])
+            normalized_rows.append(
+                {
+                    "Report": (group_index - 1) * reports_per_file + local_report,
+                    "Part": f"Part_{part_number}",
+                    "Operator": f"Operator_{operator_number}",
+                    "Trial": trial_number,
+                    "Characteristic": record["Characteristic"],
+                    "Measurement": float(record["Measurement"]),
+                    "Nominal": float(record["Nominal"]),
+                    "Upper Tol": upper_tol,
+                    "Lower Tol": lower_tol,
+                    "Tolerance": upper_tol - lower_tol,
+                }
+            )
+
+    return pd.DataFrame(normalized_rows)
 
 
 def paired_input_has_blocks(input_file: _InputSource) -> bool:
