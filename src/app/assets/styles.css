@@ -1,0 +1,378 @@
+<style>
+        :root {
+            color-scheme: __COLOR_SCHEME__;
+            /* Colors - Backgrounds & Surfaces (Tokens Dark Mode) */
+            --bg-main: #121212;
+            --bg-sidebar: #1E1E1E;
+            --surface-card: #2D2D2D;
+
+            /* Colors - Brand & Accent */
+            --brand-orange: #F58220;
+            --brand-orange-hover: rgba(245, 130, 32, 0.1);
+
+            /* Colors - Text */
+            --text-primary: #F9FAFB;
+            --text-secondary: #9CA3AF;
+
+            /* Colors - Borders & Dividers */
+            --border-color: #3F3F46;
+
+            /* Colors - Error & Alerts */
+            --error-bg: rgba(220, 38, 38, 0.1);
+            --error-border: #EF4444;
+            --error-text: #FCA5A5;
+
+            /* Backwards-compatibility aliases */
+            --app-bg: var(--bg-main);
+            --app-surface: var(--bg-sidebar);
+            --app-surface-raised: var(--surface-card);
+            --app-border: var(--border-color);
+            --app-text: var(--text-primary);
+            --app-text-muted: var(--text-secondary);
+            --app-accent: var(--brand-orange);
+            --app-card-border: var(--border-color);
+            --app-card-bg: var(--surface-card);
+            --app-shadow: rgba(0, 0, 0, 0.35);
+        }
+        __LIGHT_THEME_MEDIA__
+        [data-baseweb="base"] {
+            color-scheme: inherit;
+        }
+        .stApp {
+            background-color: var(--bg-main) !important;
+            color: var(--text-primary) !important;
+        }
+        header[data-testid="stHeader"] {
+            background-color: var(--bg-sidebar) !important;
+        }
+
+        /* 1. Panel Lateral (Sidebar) */
+        section[data-testid="stSidebar"],
+        section[data-testid="stSidebar"] > div {
+            background-color: var(--bg-sidebar) !important;
+            border-right: 1px solid var(--border-color) !important;
+            color: var(--text-primary) !important;
+        }
+        .stSidebar {
+            background-color: var(--bg-sidebar) !important;
+        }
+        section[data-testid="stSidebar"] .sidebar-title {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", sans-serif !important;
+            font-size: 1.15rem !important;
+            font-weight: 600 !important;
+            margin-bottom: 0.25rem !important;
+            text-transform: none !important;
+            letter-spacing: -0.01em !important;
+            color: var(--text-primary) !important;
+            line-height: 1.3 !important;
+        }
+        section[data-testid="stSidebar"] .sidebar-subtitle {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", sans-serif !important;
+            font-size: 0.85rem !important;
+            font-weight: 400 !important;
+            margin-bottom: 1.25rem !important;
+            color: var(--text-secondary) !important;
+            line-height: 1.4 !important;
+        }
+
+        /* Ocultar lista informativa redundante */
+        .sidebar-help,
+        .sidebar-info-list {
+            display: none !important;
+        }
+
+        /* Sidebar Navigation - Estado Activo (type="primary") */
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"],
+        section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-primary"] {
+            background-color: var(--brand-orange) !important;
+            color: #121212 !important; /* WCAG AAA Contrast */
+            border: none !important;
+            border-radius: 8px !important;
+            padding: 12px 16px !important;
+            font-weight: 600 !important;
+            width: 100% !important;
+            margin-bottom: 0.5rem !important;
+            box-shadow: none !important;
+        }
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"] *,
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"] p,
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"] span,
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"] div,
+        section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-primary"] *,
+        section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-primary"] p,
+        section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-primary"] span,
+        section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-primary"] div {
+            color: #121212 !important;
+            font-weight: 600 !important;
+        }
+
+        /* Sidebar Navigation - Estado Inactivo (type="secondary") */
+        section[data-testid="stSidebar"] .stButton > button[kind="secondary"],
+        section[data-testid="stSidebar"] .stButton > button[data-testid="baseButton-secondary"],
+        section[data-testid="stSidebar"] .stButton > button {
+            background-color: transparent !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 8px !important;
+            padding: 12px 16px !important;
+            font-weight: 500 !important;
+            width: 100% !important;
+            margin-bottom: 0.5rem !important;
+            transition: background-color 0.2s ease, border-color 0.2s ease !important;
+        }
+        section[data-testid="stSidebar"] .stButton > button {
+            display: flex !important;
+            justify-content: flex-start !important;
+            text-align: left !important;
+        }
+        section[data-testid="stSidebar"] .stButton > button div {
+            text-align: left !important;
+        }
+        section[data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover,
+        section[data-testid="stSidebar"] .stButton > button:hover {
+            background-color: var(--brand-orange-hover) !important;
+            border-color: var(--brand-orange) !important;
+            color: var(--text-primary) !important;
+        }
+
+        /* Botones generales en contenido principal */
+        .stButton > button[kind="primary"],
+        .stDownloadButton > button {
+            background-color: var(--brand-orange) !important;
+            color: #121212 !important;
+            font-weight: 600 !important;
+            border: 1px solid var(--brand-orange) !important;
+            border-radius: 8px !important;
+            padding: 8px 16px !important;
+            transition: all 0.2s ease !important;
+        }
+        .stButton > button[kind="secondary"] {
+            background-color: transparent !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 8px !important;
+        }
+        .stButton > button[kind="secondary"]:hover {
+            background-color: var(--brand-orange-hover) !important;
+            border-color: var(--brand-orange) !important;
+        }
+        .stButton > button[kind="primary"]:hover,
+        .stDownloadButton > button:hover {
+            background-color: #E07B00 !important;
+            border-color: #E07B00 !important;
+            color: #121212 !important;
+        }
+
+        /* 2. Jerarquía Tipográfica y Separadores */
+        h1, [data-testid="stHeadingWithActionElements"] h1, .app-title {
+            font-size: 28px !important;
+            font-weight: 700 !important;
+            color: var(--text-primary) !important;
+            margin: 0 0 8px 0 !important;
+            letter-spacing: -0.01em !important;
+        }
+        h2, [data-testid="stHeadingWithActionElements"] h2, .view-title {
+            font-size: 20px !important;
+            font-weight: 600 !important;
+            color: var(--text-primary) !important;
+            margin: 0 0 16px 0 !important;
+        }
+        .view-subtitle {
+            font-size: 16px !important;
+            font-weight: 500 !important;
+            color: var(--text-secondary) !important;
+        }
+        hr, [data-testid="stDivider"], .divider {
+            border: none !important;
+            border-bottom: 1px solid var(--border-color) !important;
+            opacity: 1 !important;
+            margin: 24px 0 !important;
+            width: 100% !important;
+            background-color: transparent !important;
+            height: 1px !important;
+        }
+
+        /* 3. Zonas de Carga de Archivos (Dropzones) */
+        .dropzone-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+            margin-top: 32px;
+        }
+        [data-testid="stFileUploader"] {
+            background-color: transparent !important;
+            border: none !important;
+            padding: 0 !important;
+        }
+        [data-testid="stFileUploader"] label {
+            color: var(--text-primary) !important;
+            font-weight: 500 !important;
+            margin-bottom: 8px !important;
+        }
+        [data-testid="stFileUploaderDropzone"],
+        section[data-testid="stFileUploadDropzone"],
+        [data-testid="stFileUploader"] section {
+            background-color: var(--surface-card) !important;
+            border: 1px dashed var(--border-color) !important;
+            border-radius: 8px !important;
+            padding: 24px !important;
+            transition: border-color 0.2s ease, background-color 0.2s ease !important;
+        }
+        [data-testid="stFileUploaderDropzone"]:hover,
+        section[data-testid="stFileUploadDropzone"]:hover,
+        [data-testid="stFileUploader"] section:hover {
+            border-color: var(--brand-orange) !important;
+        }
+        [data-testid="stFileUploaderDropzone"] small,
+        [data-testid="stFileUploaderDropzone"] span,
+        [data-testid="stFileUploaderDropzone"] p,
+        section[data-testid="stFileUploadDropzone"] small,
+        section[data-testid="stFileUploadDropzone"] span,
+        section[data-testid="stFileUploadDropzone"] p {
+            color: var(--text-secondary) !important;
+        }
+        [data-testid="stFileUploaderDropzone"] button,
+        section[data-testid="stFileUploadDropzone"] button {
+            background-color: transparent !important;
+            border: 1px solid var(--brand-orange) !important;
+            color: var(--brand-orange) !important;
+            border-radius: 6px !important;
+            padding: 8px 16px !important;
+            font-weight: 500 !important;
+            cursor: pointer !important;
+            transition: all 0.2s ease !important;
+        }
+        [data-testid="stFileUploaderDropzone"] button:hover,
+        section[data-testid="stFileUploadDropzone"] button:hover {
+            background-color: var(--brand-orange-hover) !important;
+            border-color: var(--brand-orange) !important;
+            color: var(--brand-orange) !important;
+        }
+
+        .file-pills { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        /* File Pill */
+        [data-testid="stFileUploaderFileData"],
+        .file-pill {
+            background-color: var(--bg-main) !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 6px !important;
+            padding: 12px 16px !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+        }
+        .btn-replace-file {
+            background-color: transparent;
+            border: 1px solid var(--brand-orange);
+            color: var(--brand-orange);
+            border-radius: 6px;
+            padding: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            text-align: center;
+            width: 100%;
+        }
+
+        /* 4. Banners de Alerta y Validaciones */
+        [data-testid="stAlert"] {
+            border-radius: 4px !important;
+            padding: 14px 18px !important;
+            margin: 16px 0 !important;
+            font-size: 14px !important;
+            line-height: 1.5 !important;
+            border: 1px solid var(--border-color) !important;
+            border-left: 4px solid var(--border-color) !important;
+            background-color: var(--surface-card) !important;
+        }
+        /* Alerta Informativa (Info) */
+        div[data-testid="stAlert"]:has([data-testid="stNotificationContentInfo"]),
+        div[data-testid="stAlert"]:has([aria-label="Info"]),
+        div[data-testid="stAlert"]:has(svg[data-testid="stIconInfo"]) {
+            background-color: rgba(59, 130, 246, 0.08) !important;
+            border: 1px solid rgba(59, 130, 246, 0.2) !important;
+            border-left: 4px solid #3B82F6 !important;
+            color: #BFDBFE !important;
+        }
+        div[data-testid="stAlert"]:has([data-testid="stNotificationContentInfo"]) p,
+        div[data-testid="stAlert"]:has([aria-label="Info"]) p {
+            color: #DBEAFE !important;
+        }
+        /* Alerta de Error (Error) */
+        div[data-testid="stAlert"]:has([data-testid="stNotificationContentError"]),
+        .stAlert:has([data-testid="stNotificationContentError"]),
+        div[data-testid="stAlert"]:has([aria-label="Error"]),
+        div[data-testid="stAlert"]:has(svg[data-testid="stIconError"]),
+        .error-banner {
+            background-color: var(--error-bg) !important;
+            border: 1px solid rgba(239, 68, 68, 0.2) !important;
+            border-left: 4px solid var(--error-border) !important;
+            color: var(--error-text) !important;
+        }
+        div[data-testid="stAlert"]:has([data-testid="stNotificationContentError"]) p,
+        div[data-testid="stAlert"]:has([aria-label="Error"]) p {
+            color: var(--error-text) !important;
+        }
+        /* Alerta de Advertencia (Warning) */
+        div[data-testid="stAlert"]:has([data-testid="stNotificationContentWarning"]),
+        div[data-testid="stAlert"]:has([aria-label="Warning"]),
+        div[data-testid="stAlert"]:has(svg[data-testid="stIconWarning"]) {
+            background-color: rgba(245, 158, 11, 0.08) !important;
+            border: 1px solid rgba(245, 158, 11, 0.2) !important;
+            border-left: 4px solid #F59E0B !important;
+            color: #FDE68A !important;
+        }
+        div[data-testid="stAlert"]:has([data-testid="stNotificationContentWarning"]) p,
+        div[data-testid="stAlert"]:has([aria-label="Warning"]) p {
+            color: #FEF3C7 !important;
+        }
+        /* Alerta de Éxito (Success) */
+        div[data-testid="stAlert"]:has([data-testid="stNotificationContentSuccess"]),
+        div[data-testid="stAlert"]:has([aria-label="Success"]),
+        div[data-testid="stAlert"]:has(svg[data-testid="stIconSuccess"]) {
+            background-color: rgba(16, 185, 129, 0.08) !important;
+            border: 1px solid rgba(16, 185, 129, 0.2) !important;
+            border-left: 4px solid #10B981 !important;
+            color: #A7F3D0 !important;
+        }
+        div[data-testid="stAlert"]:has([data-testid="stNotificationContentSuccess"]) p,
+        div[data-testid="stAlert"]:has([aria-label="Success"]) p {
+            color: #D1FAE5 !important;
+        }
+        div[data-testid="stAlert"] code,
+        .error-banner code {
+            background-color: rgba(0, 0, 0, 0.4) !important;
+            border: 1px solid #7F1D1D !important;
+            border-radius: 4px !important;
+            padding: 2px 6px !important;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+            color: #FECACA !important;
+        }
+
+        /* Form Inputs & Tables */
+        .stTextInput input,
+        .stNumberInput input,
+        [data-baseweb="select"] > div {
+            background-color: var(--surface-card) !important;
+            color: var(--text-primary) !important;
+            border-color: var(--border-color) !important;
+        }
+        [data-testid="stDataFrame"],
+        [data-testid="stDataFrame"] > div,
+        .stDataFrame table {
+            background-color: var(--bg-sidebar) !important;
+        }
+        [data-testid="stDataFrame"] th,
+        [data-testid="stDataFrame"] td {
+            color: var(--text-primary) !important;
+        }
+        .stMarkdown, .stExpander, [data-testid="stMarkdownContainer"] {
+            color: var(--text-primary) !important;
+        }
+        .report-card, .data-card {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1rem;
+            background: var(--surface-card);
+            margin-bottom: 1rem;
+        }
+        </style>

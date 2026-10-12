@@ -1,15 +1,11 @@
-"""Entry point for the Type 1 Gage Study pipeline.
+"""Legacy entry point for the Type 1 Gage Study pipeline.
 
-This is the only script you need to run.  Drop your raw data file
-as ``RAW DATA.txt`` in this folder and execute::
+Prefer the unified command::
 
-    python Type_1_gage_handy_tool.py
+    msa type1 [--input FILE] [--output DIR]
 
-It will produce three output files in the same directory:
-
-- ``gage data.txt``                     — parsed measurements (TSV)
-- ``Gage_Study_Summary.txt``            — Minitab-style text report
-- ``Gage_Study_Summary_dashboard.html`` — interactive HTML dashboard
+Without arguments it reads ``data/examples/type1/RAW DATA.txt`` and writes
+the parsed data, summary, and dashboard under ``outputs/type1/``.
 """
 
 from __future__ import annotations
@@ -28,30 +24,26 @@ import pandas as pd
 # Root directory — resolve the repository root from inside cli/.
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 
-# Add src/ to the import path so we can use the gage_tracer package
-# without needing a pip install.
-_src_dir = str(PROJECT_ROOT / "src")
-if _src_dir not in sys.path:
-    sys.path.insert(0, _src_dir)
+from gage_tracer.data_parser import transform_raw_data
+from gage_tracer.calculations import calculate_type1_metrics
+from gage_tracer.visualization import create_dashboard
 
-from gage_tracer.data_parser import transform_raw_data          # noqa: E402  # type: ignore[import-not-found]
-from gage_tracer.calculations import calculate_type1_metrics     # noqa: E402  # type: ignore[import-not-found]
-from gage_tracer.visualization import create_dashboard           # noqa: E402  # type: ignore[import-not-found]
+# Structured directories for Type 1 files.
+GAGE_OUTPUTS_DIR: Path = PROJECT_ROOT / "outputs" / "type1"
+GAGE_EXAMPLES_DIR: Path = PROJECT_ROOT / "data" / "examples" / "type1"
 
-# Structured directories for Type 1 output files.
-GAGE_ROOT: Path = PROJECT_ROOT / "gage_type1"
-GAGE_RAW_DIR: Path = GAGE_ROOT / "raw"
-GAGE_DATA_DIR: Path = GAGE_ROOT / "data"
-GAGE_REPORT_DIR: Path = GAGE_ROOT / "reports"
-GAGE_DASHBOARD_DIR: Path = GAGE_ROOT / "dashboards"
+GAGE_RAW_DIR: Path = GAGE_EXAMPLES_DIR
+GAGE_DATA_DIR: Path = GAGE_OUTPUTS_DIR
+GAGE_REPORT_DIR: Path = GAGE_OUTPUTS_DIR
+GAGE_DASHBOARD_DIR: Path = GAGE_OUTPUTS_DIR
 
-RAW_FILE: Path = GAGE_RAW_DIR / "RAW DATA.txt"
+RAW_FILE: Path = GAGE_EXAMPLES_DIR / "RAW DATA.txt"
 ROOT_RAW_FILE: Path = PROJECT_ROOT / "RAW DATA.txt"
-GAGE_DATA_FILE: Path = GAGE_DATA_DIR / "gage data.txt"
+GAGE_DATA_FILE: Path = GAGE_OUTPUTS_DIR / "gage data.txt"
 ROOT_GAGE_DATA_FILE: Path = PROJECT_ROOT / "gage data.txt"
-SUMMARY_TXT: Path = GAGE_REPORT_DIR / "Gage_Study_Summary.txt"
+SUMMARY_TXT: Path = GAGE_OUTPUTS_DIR / "Gage_Study_Summary.txt"
 ROOT_SUMMARY_TXT: Path = PROJECT_ROOT / "Gage_Study_Summary.txt"
-DASHBOARD_HTML: Path = GAGE_DASHBOARD_DIR / "Gage_Study_Summary_dashboard.html"
+DASHBOARD_HTML: Path = GAGE_OUTPUTS_DIR / "Gage_Study_Summary_dashboard.html"
 ROOT_DASHBOARD_HTML: Path = PROJECT_ROOT / "Gage_Study_Summary_dashboard.html"
 
 
@@ -95,7 +87,10 @@ def _generate_text_report(
         fh.write(report_df.to_string(index=False))
 
 
-def run() -> None:
+def run(
+    input_file: Path | None = None,
+    output_dir: Path | None = None,
+) -> None:
     """Run the full pipeline: Parse → Calculate → Report → Dashboard.
 
     Steps:
@@ -107,47 +102,55 @@ def run() -> None:
     print("  Type 1 Gage Study — Automated Report")
     print("=" * 50)
 
-    # Ensure structured output directories exist.
-    GAGE_RAW_DIR.mkdir(parents=True, exist_ok=True)
-    GAGE_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    GAGE_REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    GAGE_DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
+    use_legacy_defaults = input_file is None and output_dir is None
+    output_path = Path(output_dir) if output_dir is not None else GAGE_OUTPUTS_DIR
+    data_file = output_path / GAGE_DATA_FILE.name
+    summary_path = output_path / SUMMARY_TXT.name
+    dashboard_path = output_path / DASHBOARD_HTML.name
+    output_path.mkdir(parents=True, exist_ok=True)
+    if input_file is None:
+        GAGE_RAW_DIR.mkdir(parents=True, exist_ok=True)
 
     # Migrate legacy root outputs into structured dirs if needed.
-    if not GAGE_DATA_FILE.exists() and ROOT_GAGE_DATA_FILE.exists():
-        shutil.move(str(ROOT_GAGE_DATA_FILE), str(GAGE_DATA_FILE))
-        print(f"      Migrated legacy parsed data to {GAGE_DATA_FILE.relative_to(PROJECT_ROOT)}")
-    if not SUMMARY_TXT.exists() and ROOT_SUMMARY_TXT.exists():
-        shutil.move(str(ROOT_SUMMARY_TXT), str(SUMMARY_TXT))
-        print(f"      Migrated legacy report to {SUMMARY_TXT.relative_to(PROJECT_ROOT)}")
-    if not DASHBOARD_HTML.exists() and ROOT_DASHBOARD_HTML.exists():
-        shutil.move(str(ROOT_DASHBOARD_HTML), str(DASHBOARD_HTML))
-        print(f"      Migrated legacy dashboard to {DASHBOARD_HTML.relative_to(PROJECT_ROOT)}")
+    if use_legacy_defaults:
+        if not data_file.exists() and ROOT_GAGE_DATA_FILE.exists():
+            shutil.move(str(ROOT_GAGE_DATA_FILE), str(data_file))
+            print(f"      Migrated legacy parsed data to {data_file}")
+        if not summary_path.exists() and ROOT_SUMMARY_TXT.exists():
+            shutil.move(str(ROOT_SUMMARY_TXT), str(summary_path))
+            print(f"      Migrated legacy report to {summary_path}")
+        if not dashboard_path.exists() and ROOT_DASHBOARD_HTML.exists():
+            shutil.move(str(ROOT_DASHBOARD_HTML), str(dashboard_path))
+            print(f"      Migrated legacy dashboard to {dashboard_path}")
 
     # Step 1 — Parse raw data into a clean TSV table.
-    if RAW_FILE.exists():
+    if input_file is not None:
+        raw_path = Path(input_file)
+        if not raw_path.is_file():
+            raise FileNotFoundError(f"Type 1 input file not found: {raw_path}")
+    elif RAW_FILE.exists():
         raw_path = RAW_FILE
     elif ROOT_RAW_FILE.exists():
         raw_path = ROOT_RAW_FILE
         shutil.copy2(ROOT_RAW_FILE, RAW_FILE)
-        print(f"      Migrated raw input to structured folder: {RAW_FILE.relative_to(PROJECT_ROOT)}")
+        print(f"      Migrated raw input to structured folder: {RAW_FILE}")
     else:
         raw_path = None
 
     if raw_path is not None:
         print(f"\n[1/3] Parsing raw data: {raw_path.name}")
-        transform_raw_data(raw_path, GAGE_DATA_FILE)
+        transform_raw_data(raw_path, data_file)
     else:
-        print(f"\n[1/3] Raw data file not found ({RAW_FILE.name} or {ROOT_RAW_FILE.name});")
-        print(f"      using existing {GAGE_DATA_FILE.relative_to(PROJECT_ROOT)}")
+        print(f"\n[1/3] Raw data file not found ({RAW_FILE} or {ROOT_RAW_FILE});")
+        print(f"      using existing {data_file}")
 
-    if not GAGE_DATA_FILE.exists():
-        print(f"ERROR: {GAGE_DATA_FILE.name} not found. Aborting.")
+    if not data_file.exists():
+        raise FileNotFoundError(f"Parsed Type 1 data file not found: {data_file}")
         return
 
     # Step 2 — Load the parsed data and compute Gage Study metrics.
     print(f"\n[2/3] Computing Type 1 Gage metrics ...")
-    df: pd.DataFrame = pd.read_csv(GAGE_DATA_FILE, sep="\t")
+    df: pd.DataFrame = pd.read_csv(data_file, sep="\t")
 
     # These columns are metadata/stats — everything else is a measurement dimension.
     _SKIP_COLS = {"", " ", "Dimension", "Average", "Max diff", "Nominal", "Upper Tol", "Lower Tol"}
@@ -164,20 +167,19 @@ def run() -> None:
                 continue
 
     if not summary:
-        print("No valid dimensions found in data.")
-        return
+        raise ValueError("No valid dimensions found in the parsed Type 1 data.")
 
     # Step 3 — Generate text report.
-    _generate_text_report(summary, SUMMARY_TXT)
+    _generate_text_report(summary, summary_path)
     print(f"     Report generated: {len(summary)} dimensions analyzed.")
 
     # Step 4 — Build the interactive HTML dashboard.
     print(f"\n[3/3] Generating dashboard ...")
-    create_dashboard(df, summary, DASHBOARD_HTML)
+    create_dashboard(df, summary, dashboard_path)
 
     print(f"\n{'=' * 50}")
-    print(f"  [OK] Text report  -> {SUMMARY_TXT.name}")
-    print(f"  [OK] Dashboard    -> {DASHBOARD_HTML.name}")
+    print(f"  [OK] Text report  -> {summary_path}")
+    print(f"  [OK] Dashboard    -> {dashboard_path}")
     print(f"{'=' * 50}")
 
 

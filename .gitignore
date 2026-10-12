@@ -28,29 +28,16 @@ desktop.ini
 *.mwx
 
 # ── Generated workflow outputs ──
-gage_type1/data/*
-gage_type1/reports/*
-gage_type1/dashboards/*
-paired_ttest/data/*
-paired_ttest/reports/*
-paired_ttest/dashboards/*
-gage_rr/data/*
-gage_rr/reports/*
-gage_rr/dashboards/*
-!gage_type1/data/.gitkeep
-!gage_type1/reports/.gitkeep
-!gage_type1/dashboards/.gitkeep
-!paired_ttest/data/.gitkeep
-!paired_ttest/reports/.gitkeep
-!paired_ttest/dashboards/.gitkeep
-!gage_rr/data/.gitkeep
-!gage_rr/reports/.gitkeep
-!gage_rr/dashboards/.gitkeep
+outputs/*/*
+!outputs/*/.gitkeep
+!outputs/.gitkeep
+
+# ── Private / Industrial measurements data ──
+data/private/*
+!data/private/.gitkeep
 
 # ── Local exploratory scripts ──
 scratch/
 
-# Local AI project memory
-
-
 # ── Local AI project memory ──
+# (memoria.md is tracked locally for context)
