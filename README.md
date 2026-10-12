@@ -55,8 +55,9 @@ flowchart LR
 ### Entrada de Streamlit
 
 - `MSA_app.py` es el lanzador principal documentado. Importa `main`
-	desde el módulo `app` distribuido con el paquete editable y lo ejecuta sin
-	modificar `sys.path`; no contiene cálculos estadísticos ni define páginas.
+	desde `src/app`, por lo que funciona directamente desde un checkout del
+	repositorio sin requerir una instalación editable; no contiene cálculos
+	estadísticos ni define páginas.
 - `src/app/main.py` orquesta la navegación y las tres vistas. El paquete separa
 	`views/type1_view.py`, `views/paired_view.py` y `views/grr_view.py`; los
 	componentes compartidos están en `components/`.
