@@ -1,0 +1,37 @@
+======================================================================
+PAIRED T-TEST COMPARISON: SYSTEM A vs. SYSTEM B
+Date: 2026-09-08 23:59:49
+======================================================================
+
+HYPOTHESES
+----------------------------------------------------------------------
+Null Hypothesis (H₀):        μ_A = μ_B (or equivalently, μ_Difference = 0)
+Alternative Hypothesis (H₁): μ_A ≠ μ_B (two-sided)
+
+Test Type: Two-sided paired t-test
+Significance Level (α):      0.05
+
+DESCRIPTIVE STATISTICS
+----------------------------------------------------------------------
+Statistic                        System A        System B      Difference
+----------------------------------------------------------------------
+N                                      29              29              29
+Mean                           0.35400000      0.35399655      0.00000345
+StDev                          0.00016036      0.00019727      0.00009443
+SE Mean                        0.00002978      0.00003663      0.00001753
+
+PAIRED T-TEST RESULTS
+----------------------------------------------------------------------
+Mean Difference (A − B):         0.00000345
+95% Confidence Interval:    [    -0.00003247,      0.00003937]
+T-Statistic:                       0.196657
+Degrees of Freedom:                      28
+P-Value (two-sided):               0.845516
+
+CONCLUSION
+----------------------------------------------------------------------
+P-Value (0.845516) >= α (0.05): FAIL TO REJECT NULL HYPOTHESIS
+Interpretation: There is no statistically significant
+difference between System A and System B.
+
+======================================================================
