@@ -1,17 +1,11 @@
-"""Entry point for the Gage R&R (Crossed) ANOVA pipeline.
+"""Legacy entry point for the crossed Gage R&R ANOVA pipeline.
 
-This CLI processes crossed Gage R&R report blocks. A report may contain one or
-more named measurement characteristics; every characteristic receives an
-independent ANOVA result. Place the raw file as ``GAGE RR DATA.txt`` in
-``gage_rr/raw`` and execute::
+Prefer the unified command::
 
-    python Gage_RR_tool.py
+    msa grr [--input FILE] [--output DIR] [--report-order part-major|operator-major]
 
-It produces shared normalized data plus one report set per characteristic:
-
-- ``gage_rr/data/gage rr data.txt``         — parsed measurements (TSV)
-- ``gage_rr/reports/Gage_RR_Summary_<characteristic>.txt`` — text report
-- ``gage_rr/dashboards/Gage_RR_Dashboard_<characteristic>.html`` — dashboard
+Without arguments it reads ``data/examples/gage_rr/GAGE RR DATA.txt`` and
+writes normalized data, reports, and dashboards under ``outputs/gage_rr/``.
 """
 
 from __future__ import annotations
@@ -31,30 +25,26 @@ import pandas as pd
 # Root directory — resolve the repository root from inside cli/.
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 
-# Add src/ to the import path so we can use the gage_tracer package
-# without needing a pip install.
-_src_dir = str(PROJECT_ROOT / "src")
-if _src_dir not in sys.path:
-    sys.path.insert(0, _src_dir)
+from gage_tracer.data_parser import transform_gage_rr_data
+from gage_tracer.calculations import calculate_gage_rr_by_characteristic
+from gage_tracer.visualization import create_gage_rr_dashboard, create_gage_rr_html_dashboard
 
-from gage_tracer.data_parser import transform_gage_rr_data       # noqa: E402  # type: ignore[import-not-found]
-from gage_tracer.calculations import calculate_gage_rr_by_characteristic  # noqa: E402  # type: ignore[import-not-found]
-from gage_tracer.visualization import create_gage_rr_dashboard, create_gage_rr_html_dashboard     # noqa: E402  # type: ignore[import-not-found]
+# Structured directories for Gage R&R files.
+GRR_OUTPUTS_DIR: Path = PROJECT_ROOT / "outputs" / "gage_rr"
+GRR_EXAMPLES_DIR: Path = PROJECT_ROOT / "data" / "examples" / "gage_rr"
 
-# Structured directories for Gage R&R output files.
-GRR_ROOT: Path = PROJECT_ROOT / "gage_rr"
-GRR_RAW_DIR: Path = GRR_ROOT / "raw"
-GRR_DATA_DIR: Path = GRR_ROOT / "data"
-GRR_REPORT_DIR: Path = GRR_ROOT / "reports"
-GRR_DASHBOARD_DIR: Path = GRR_ROOT / "dashboards"
+GRR_RAW_DIR: Path = GRR_EXAMPLES_DIR
+GRR_DATA_DIR: Path = GRR_OUTPUTS_DIR
+GRR_REPORT_DIR: Path = GRR_OUTPUTS_DIR
+GRR_DASHBOARD_DIR: Path = GRR_OUTPUTS_DIR
 
-RAW_FILE: Path = GRR_RAW_DIR / "GAGE RR DATA.txt"
+RAW_FILE: Path = GRR_EXAMPLES_DIR / "GAGE RR DATA.txt"
 ROOT_RAW_FILE: Path = PROJECT_ROOT / "GAGE RR DATA.txt"
-GRR_DATA_FILE: Path = GRR_DATA_DIR / "gage rr data.txt"
+GRR_DATA_FILE: Path = GRR_OUTPUTS_DIR / "gage rr data.txt"
 ROOT_GRR_DATA_FILE: Path = PROJECT_ROOT / "gage rr data.txt"
-SUMMARY_TXT: Path = GRR_REPORT_DIR / "Gage_RR_Summary.txt"
+SUMMARY_TXT: Path = GRR_OUTPUTS_DIR / "Gage_RR_Summary.txt"
 ROOT_SUMMARY_TXT: Path = PROJECT_ROOT / "Gage_RR_Summary.txt"
-DASHBOARD_HTML: Path = GRR_DASHBOARD_DIR / "Gage_RR_Dashboard.html"
+DASHBOARD_HTML: Path = GRR_OUTPUTS_DIR / "Gage_RR_Dashboard.html"
 ROOT_DASHBOARD_HTML: Path = PROJECT_ROOT / "Gage_RR_Dashboard.html"
 
 
@@ -129,7 +119,12 @@ def _file_stem(characteristic: str) -> str:
     return "".join(char if char.isalnum() or char in "-_" else "_" for char in characteristic)
 
 
-def run(input_format: str = "auto", report_order: str = "part-major") -> None:
+def run(
+    input_format: str = "auto",
+    report_order: str = "part-major",
+    input_file: Path | None = None,
+    output_dir: Path | None = None,
+) -> None:
     """Run the full multireport Gage R&R pipeline.
 
     Steps:
@@ -141,30 +136,36 @@ def run(input_format: str = "auto", report_order: str = "part-major") -> None:
     print("  Gage R&R (Crossed) — Automated Report")
     print("=" * 50)
 
-    # Ensure structured output directories exist.
-    GRR_RAW_DIR.mkdir(parents=True, exist_ok=True)
-    GRR_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    GRR_REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    GRR_DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
+    use_legacy_defaults = input_file is None and output_dir is None
+    output_path = Path(output_dir) if output_dir is not None else GRR_OUTPUTS_DIR
+    data_file = output_path / GRR_DATA_FILE.name
+    output_path.mkdir(parents=True, exist_ok=True)
+    if input_file is None:
+        GRR_RAW_DIR.mkdir(parents=True, exist_ok=True)
 
     # Migrate legacy root outputs into structured dirs if needed.
-    if not GRR_DATA_FILE.exists() and ROOT_GRR_DATA_FILE.exists():
-        shutil.move(str(ROOT_GRR_DATA_FILE), str(GRR_DATA_FILE))
-        print(f"      Migrated legacy parsed data to {GRR_DATA_FILE.relative_to(PROJECT_ROOT)}")
-    if not SUMMARY_TXT.exists() and ROOT_SUMMARY_TXT.exists():
-        shutil.move(str(ROOT_SUMMARY_TXT), str(SUMMARY_TXT))
-        print(f"      Migrated legacy report to {SUMMARY_TXT.relative_to(PROJECT_ROOT)}")
-    if not DASHBOARD_HTML.exists() and ROOT_DASHBOARD_HTML.exists():
-        shutil.move(str(ROOT_DASHBOARD_HTML), str(DASHBOARD_HTML))
-        print(f"      Migrated legacy dashboard to {DASHBOARD_HTML.relative_to(PROJECT_ROOT)}")
+    if use_legacy_defaults:
+        if not data_file.exists() and ROOT_GRR_DATA_FILE.exists():
+            shutil.move(str(ROOT_GRR_DATA_FILE), str(data_file))
+            print(f"      Migrated legacy parsed data to {data_file}")
+        if not SUMMARY_TXT.exists() and ROOT_SUMMARY_TXT.exists():
+            shutil.move(str(ROOT_SUMMARY_TXT), str(SUMMARY_TXT))
+            print(f"      Migrated legacy report to {SUMMARY_TXT}")
+        if not DASHBOARD_HTML.exists() and ROOT_DASHBOARD_HTML.exists():
+            shutil.move(str(ROOT_DASHBOARD_HTML), str(DASHBOARD_HTML))
+            print(f"      Migrated legacy dashboard to {DASHBOARD_HTML}")
 
     # Step 1 — Parse raw data into a clean TSV table.
-    if RAW_FILE.exists():
+    if input_file is not None:
+        raw_path = Path(input_file)
+        if not raw_path.is_file():
+            raise FileNotFoundError(f"Gage R&R input file not found: {raw_path}")
+    elif RAW_FILE.exists():
         raw_path = RAW_FILE
     elif ROOT_RAW_FILE.exists():
         raw_path = ROOT_RAW_FILE
         shutil.copy2(ROOT_RAW_FILE, RAW_FILE)
-        print(f"      Migrated raw input to structured folder: {RAW_FILE.relative_to(PROJECT_ROOT)}")
+        print(f"      Migrated raw input to structured folder: {RAW_FILE}")
     else:
         raw_path = None
 
@@ -173,40 +174,39 @@ def run(input_format: str = "auto", report_order: str = "part-major") -> None:
         try:
             df = transform_gage_rr_data(
                 raw_path,
-                GRR_DATA_FILE,
+                data_file,
                 input_format=input_format,
                 report_order=report_order,
             )
         except ValueError as e:
-            print(f"ERROR: {e}")
-            print("The input must contain exactly 90 report blocks: 10 parts x 3 operators x 3 trials.")
-            return
+            raise ValueError(
+                f"{e} The input must contain exactly 90 report blocks: "
+                "10 parts x 3 operators x 3 trials."
+            ) from e
     else:
         print(f"\n[1/3] Raw data file not found ({RAW_FILE.name} or {ROOT_RAW_FILE.name});")
-        print(f"      using existing {GRR_DATA_FILE.relative_to(PROJECT_ROOT)}")
+        print(f"      using existing {data_file}")
 
-    if not GRR_DATA_FILE.exists():
-        print(f"ERROR: {GRR_DATA_FILE.name} not found. Aborting.")
-        return
+    if not data_file.exists():
+        raise FileNotFoundError(f"Parsed Gage R&R data file not found: {data_file}")
 
     # Step 2 — Load the parsed data and compute Gage R&R metrics.
     print(f"\n[2/3] Computing Gage R&R ANOVA metrics ...")
-    df: pd.DataFrame = pd.read_csv(GRR_DATA_FILE, sep="\t")
+    df: pd.DataFrame = pd.read_csv(data_file, sep="\t")
 
     try:
         all_results = calculate_gage_rr_by_characteristic(df)
     except Exception as e:
-        print(f"ERROR computing Gage R&R metrics: {e}")
-        return
+        raise RuntimeError(f"Error computing Gage R&R metrics: {e}") from e
 
     # Step 3/4 — Generate an independent report and dashboard per characteristic.
     print(f"\n[3/3] Generating {len(all_results)} characteristic reports ...")
     import matplotlib.pyplot as plt
     for characteristic, results in all_results.items():
         stem = _file_stem(characteristic)
-        report_path = GRR_REPORT_DIR / f"Gage_RR_Summary_{stem}.txt"
-        dashboard_path = GRR_DASHBOARD_DIR / f"Gage_RR_Dashboard_{stem}.html"
-        dashboard_png = GRR_DASHBOARD_DIR / f"Gage_RR_Dashboard_{stem}.png"
+        report_path = output_path / f"Gage_RR_Summary_{stem}.txt"
+        dashboard_path = output_path / f"Gage_RR_Dashboard_{stem}.html"
+        dashboard_png = output_path / f"Gage_RR_Dashboard_{stem}.png"
         characteristic_df = df[df["Characteristic"] == characteristic]
 
         _generate_text_report(results, report_path)
@@ -238,5 +238,12 @@ if __name__ == "__main__":
             "(default) or Operator -> Part -> Trial."
         ),
     )
+    parser.add_argument("--input", type=Path, help="Raw Gage R&R input file.")
+    parser.add_argument("--output", type=Path, help="Directory for generated reports.")
     args = parser.parse_args()
-    run(input_format=args.input_format, report_order=args.report_order)
+    run(
+        input_format=args.input_format,
+        report_order=args.report_order,
+        input_file=args.input,
+        output_dir=args.output,
+    )

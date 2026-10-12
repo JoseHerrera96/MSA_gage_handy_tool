@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "msa-gage-handy-tool"
+version = "0.1.0"
+description = "Integrated MSA Suite for Type 1 Gage Study, Paired T-Test, and Gage R&R ANOVA analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Jose Herrera", email = "josexd96@gmail.com"}
+]
+keywords = ["msa", "gage", "measurement-systems-analysis", "statistics", "quality-control"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+]
+
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "matplotlib>=3.7",
+    "streamlit>=1.25",
+    "watchdog>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.scripts]
+msa = "cli.command:main"
+msa-app = "cli.app:main"
+msa-type1 = "cli.Type_1_gage_handy_tool:run"
+msa-paired = "cli.Paired_T_Test_tool:run"
+msa-grr = "cli.Gage_RR_tool:run"
+
+[project.urls]
+Homepage = "https://github.com/JoseHerrera96/MSA_gage_handy_tool"
+Repository = "https://github.com/JoseHerrera96/MSA_gage_handy_tool"
+Issues = "https://github.com/JoseHerrera96/MSA_gage_handy_tool/issues"
+
+[tool.setuptools]
+package-dir = {"" = "src", "cli" = "cli"}
+packages = [
+    "gage_tracer",
+    "app",
+    "app.components",
+    "app.views",
+    "cli",
+]
+
+[tool.setuptools.package-data]
+"gage_tracer" = ["*.txt", "*.csv"]
+"app" = ["assets/*.css"]

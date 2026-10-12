@@ -4,28 +4,48 @@ Data Tracer delivers Measurement System Analysis (MSA) workflows for Type 1 Gage
 
 ## Repository Overview
 
-- `streamlit_app.py` — Unified Streamlit entrypoint for interactive MSA workflows.
-- `cli/Type_1_gage_handy_tool.py` — Standalone CLI for Type 1 Gage Study processing.
-- `cli/Paired_T_Test_tool.py` — Standalone CLI for paired t-test comparison.
-- `cli/Gage_RR_tool.py` — Standalone multireport CLI for crossed Gage R&R analysis.
-- `src/app.py` — Streamlit application module with the core UI implementation.
+- `MSA_app.py` — Canonical Streamlit launcher for interactive MSA workflows.
+- `cli/command.py` — Unified `msa` CLI with `type1`, `grr`, and `paired` subcommands.
+- `cli/Type_1_gage_handy_tool.py`, `cli/Paired_T_Test_tool.py`,
+  `cli/Gage_RR_tool.py` — Legacy entry points retained for compatibility.
+- `src/app/` — Streamlit application package with its workflow views and shared components.
 - `src/gage_tracer/` — Core library with parsing, calculation, and dashboard rendering.
-- `gage_type1/` — Structured output directories for Type 1 results.
-- `paired_ttest/` — Structured output directories for Paired T-Test results.
-- `gage_rr/` — Structured input and output directories for crossed Gage R&R results.
+- `data/examples/` — Versioned synthetic example inputs.
+- `data/private/` — Ignored location for confidential local input data.
+- `outputs/` — Ignored generated analysis files.
 - `tests/` — Validation tests for key analytical components.
+
+## Instalación y ejecución
+
+Instala el paquete en modo editable desde la raíz del repositorio:
+
+```powershell
+python -m pip install -e .
+```
+
+Inicia la interfaz Streamlit con `streamlit run MSA_app.py` o con el
+entry point instalado `msa-app`. La CLI unificada se instala como `msa`:
+
+```powershell
+msa type1 --input data/private/type1-study.txt --output outputs/type1
+msa grr --input data/private/grr-study.txt --report-order operator-major --output outputs/gage_rr
+msa paired --system-a data/private/system-a.txt --system-b data/private/system-b.txt --output outputs/paired
+```
+
+Los argumentos de entrada y salida son opcionales: por defecto se usan los
+ejemplos bajo `data/examples/` y las carpetas correspondientes bajo `outputs/`.
 
 ## Core del proyecto: `src`, `cli` y Streamlit
 
 El proyecto separa la interfaz, las reglas de análisis y los puntos de entrada.
-La carpeta `src/gage_tracer/` contiene el núcleo reutilizable; `src/app.py` y
+La carpeta `src/gage_tracer/` contiene el núcleo reutilizable; `src/app/` y
 los scripts de `cli/` coordinan ese núcleo para la interfaz web o para la
 generación de archivos.
 
 ```mermaid
 flowchart LR
-		Browser[Usuario en navegador] --> Launcher[streamlit_app.py]
-		Launcher --> UI[src/app.py]
+		Browser[Usuario en navegador] --> Launcher[MSA_app.py]
+		Launcher --> UI[src/app/main.py]
 		UI --> Domain[src/gage_tracer]
 		CLI[Scripts cli/] --> Domain
 		Domain --> Data[Datos normalizados]
@@ -34,17 +54,17 @@ flowchart LR
 
 ### Entrada de Streamlit
 
-- `streamlit_app.py` es el lanzador principal documentado. Añade `src/` a la
-	ruta de importación de Python, importa `main` desde `src/app.py` y lo ejecuta.
-	No contiene cálculos estadísticos ni define las páginas.
-- `src/app.py` construye la experiencia Streamlit: navegación entre Type 1,
-	Paired T-Test y Gage R&R; carga de archivos; selección de formatos y opciones;
-	presentación de tablas, métricas y gráficos; y descargas de resultados.
-	Convierte los archivos cargados en flujos reutilizables y delega el análisis
-	en `gage_tracer`.
-- `cli/app.py` es un segundo lanzador de la misma aplicación web: ejecuta
-	Streamlit apuntando directamente a `src/app.py`. No es uno de los tres CLI
-	que generan informes estadísticos.
+- `MSA_app.py` es el lanzador principal documentado. Importa `main`
+	desde `src/app`, por lo que funciona directamente desde un checkout del
+	repositorio sin requerir una instalación editable; no contiene cálculos
+	estadísticos ni define páginas.
+- `src/app/main.py` orquesta la navegación y las tres vistas. El paquete separa
+	`views/type1_view.py`, `views/paired_view.py` y `views/grr_view.py`; los
+	componentes compartidos están en `components/`.
+- `src/app/theme.py` inyecta los estilos definidos en `src/app/assets/styles.css`.
+	Las vistas delegan parsers y cálculos en `gage_tracer`.
+- `cli/app.py` inicia la misma aplicación Streamlit empaquetada. No es uno de
+	los tres CLI heredados que generan informes estadísticos.
 
 ### Módulos de `src/gage_tracer/`
 
@@ -78,10 +98,19 @@ fórmulas.
 
 ### Responsabilidad de `cli/`
 
-Los scripts CLI son orquestadores ejecutables desde una terminal. Preparan las
-carpetas, localizan archivos de entrada, llaman al parser y a los cálculos, y
-guardan los artefactos del estudio. Comparten `src/gage_tracer/`; no mantienen
-una segunda implementación de las fórmulas.
+`msa` es la interfaz unificada de terminal. Los argumentos `--input`,
+`--system-a`, `--system-b` y `--output` aceptan rutas explícitas; si se omiten,
+se usan los ejemplos y directorios de salida del repositorio.
+
+```powershell
+msa type1 [--input FILE] [--output DIR]
+msa grr [--input FILE] [--output DIR] [--report-order part-major|operator-major]
+msa paired [--system-a FILE] [--system-b FILE] [--output DIR]
+```
+
+Los scripts Python descritos abajo se mantienen como entry points heredados.
+Comparten `src/gage_tracer/`; no mantienen una segunda implementación de las
+fórmulas.
 
 - `cli/Type_1_gage_handy_tool.py` ejecuta el flujo Type 1: lee `RAW DATA.txt`,
 	normaliza las mediciones, calcula cada dimensión y genera el resumen de texto
@@ -95,25 +124,18 @@ una segunda implementación de las fórmulas.
 	dashboards. Permite seleccionar cómo interpretar el orden de los bloques no
 	etiquetados con `--report-order`.
 - `cli/app.py` inicia la aplicación Streamlit desde la carpeta `cli/`; para
-	abrir la interfaz, el punto de entrada principal sigue siendo
-	`streamlit_app.py`.
+	abrir la interfaz, el punto de entrada principal es `MSA_app.py`.
 
-Los CLI guardan los resultados en las carpetas propias de cada estudio
-(`data/`, `reports/` y `dashboards/`). Streamlit, en cambio, procesa cargas en
-memoria y permite descargar los resultados desde el navegador.
+La CLI guarda los resultados bajo `outputs/`; los argumentos explícitos
+permiten escribir en otra carpeta. Streamlit procesa cargas en memoria y
+permite descargar los resultados desde el navegador.
 
 ## Repository Standard
 
-Every study follows the same directory convention:
-
-- `raw/` — input files or versioned synthetic examples.
-- `data/` — normalized TSV output generated by the pipeline.
-- `reports/` — generated plain-text statistical summaries.
-- `dashboards/` — generated HTML and PNG visual reports.
-- `docs/` — study-specific usage and interpretation guides, when needed.
-- `templates/` — reusable input templates for a specific study.
-
-Generated files are ignored by Git; regenerate them from `raw/` inputs with the CLI or Streamlit app. Do not place production measurement data in version control.
+Examples are versioned under `data/examples/`; confidential local inputs belong
+in the ignored `data/private/` directory. Generated data, reports, and
+dashboards belong under `outputs/` and are ignored by Git. Do not place
+production measurement data in version control.
 
 ## Layout
 
@@ -122,37 +144,19 @@ Generated files are ignored by Git; regenerate them from `raw/` inputs with the 
 ├── LICENSE
 ├── README.md
 ├── requirements.txt
-├── streamlit_app.py
+├── MSA_app.py
 ├── cli/
-│   ├── Gage_RR_tool.py
-│   ├── Type_1_gage_handy_tool.py
-│   └── Paired_T_Test_tool.py
+│   ├── command.py
+│   ├── __main__.py
+│   └── legacy workflow entry points
+├── data/
+│   ├── examples/
+│   └── private/
+├── docs/
+├── outputs/
 ├── src/
-│   ├── app.py
+│   ├── app/
 │   └── gage_tracer/
-│       ├── calculations.py
-│       ├── data_parser.py
-│       ├── paired_ttest.py
-│       ├── visualization.py
-│       └── __init__.py
-├── gage_rr/
-│   ├── raw/
-│   ├── templates/
-│   ├── data/
-│   ├── reports/
-│   ├── dashboards/
-│   └── docs/
-├── gage_type1/
-│   ├── raw/
-│   ├── data/
-│   ├── reports/
-│   └── dashboards/
-├── paired_ttest/
-│   ├── raw/
-│   ├── data/
-│   ├── reports/
-│   ├── dashboards/
-│   └── docs/
 └── tests/
 ```
 
@@ -163,13 +167,13 @@ Generated files are ignored by Git; regenerate them from `raw/` inputs with the 
 Launch the portfolio-grade Streamlit application:
 
 ```bash
-streamlit run streamlit_app.py
+streamlit run MSA_app.py
 ```
 
 or with the selected Python interpreter:
 
 ```bash
-python -m streamlit run streamlit_app.py
+python -m streamlit run MSA_app.py
 ```
 
 The UI provides:
@@ -181,10 +185,11 @@ The UI provides:
 ### CLI Workflows
 
 #### Type 1 Gage Study
-Place the raw measurement input and run:
+The Type 1 subcommand defaults to the bundled example. Supply custom files and
+output directories with:
 
 ```bash
-python cli/Type_1_gage_handy_tool.py
+msa type1 --input data/private/type1-study.txt --output outputs/type1
 ```
 
 In Streamlit, the Type 1 workflow offers two input layouts. The existing layout
@@ -196,23 +201,23 @@ extra trailing columns are ignored. Headers and `PATTERN:`, `DISPLAY:`, or
 `UNIT:` metadata may appear between reports. Each report must contain the same
 characteristics in the same order; a repeated characteristic starts the next
 report. The app displays the number of complete cycles detected and rejects
-incomplete or inconsistent cycles. The bundled `gage_type1/raw/RAW DATA.txt`
+incomplete or inconsistent cycles. The bundled `data/examples/type1/RAW DATA.txt`
 contains 120 complete reports followed by a truncated report; the parser rejects
 that final incomplete report rather than silently dropping or completing it.
 
 #### Paired T-Test
-Place the paired measurement files and run:
+For a paired comparison, specify both files:
 
 ```bash
-python cli/Paired_T_Test_tool.py
+msa paired --system-a data/private/system-a.txt --system-b data/private/system-b.txt --output outputs/paired
 ```
 
 #### Gage R&R (Crossed)
 
-Place the raw report file in `gage_rr/raw/GAGE RR DATA.txt` and run:
+Supply the raw report file and optional report order:
 
 ```bash
-python cli/Gage_RR_tool.py
+msa grr --input data/private/grr-study.txt --output outputs/gage_rr
 ```
 
 The input must form a balanced design:
@@ -227,7 +232,7 @@ Operator, and Trial labels. The default is `part-major`
 (`Operator → Part → Trial`) when that matches the collection sequence:
 
 ```bash
-python cli/Gage_RR_tool.py --report-order operator-major
+msa grr --input data/private/grr-study.txt --report-order operator-major --output outputs/gage_rr
 ```
 
 The Streamlit workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags.
@@ -241,14 +246,13 @@ Characteristic tags are not fixed across source files. They may be names such as
 `Measurement1`–`Measurement3` or feature codes; each report must contain a
 consistent characteristic set. The parser assigns Part, Operator, and Trial
 from the selected upload mode and report order. The bundled
-`gage_rr/raw/GAGE RR DATA_backup.txt` is not a complete study: it contains only
+`data/examples/gage_rr/GAGE RR DATA_backup.txt` is not a complete study: it contains only
 42 reports with duplicate `Measurement` tags and is rejected by validation.
 
 After processing, the Gage R&R workflow opens with a study overview that summarizes the verdict, variation components, NDC, and interaction result for every characteristic. Download the overview on its own or as the first HTML file in the all-reports ZIP.
 
-For the Paired T-Test, the CLI reads `PAIRED DATA SYSTEM A.txt` and
-`PAIRED DATA SYSTEM B.txt` from `paired_ttest/raw/` (legacy root-level files are
-still accepted). Single-characteristic files contain one finite number per
+For the Paired T-Test, default inputs come from `data/examples/paired/`.
+Single-characteristic files contain one finite number per
 nonblank line. Multi-characteristic files use matching `:BEGIN`/`:END` blocks;
 within each block, each row is `<characteristic><TAB><measurement>`, with
 optional trailing GRR metadata fields ignored. Optional `PATTERN:`, `DISPLAY:`,

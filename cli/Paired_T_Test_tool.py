@@ -1,24 +1,11 @@
-"""Entry point for the Paired T-Test comparison pipeline.
+"""Legacy entry point for the paired-system comparison pipeline.
 
-This script orchestrates the paired t-test analysis workflow:
-1. Parse two measurement files (System A and System B)
-2. Export paired data to a structured TSV
-3. Calculate paired t-test metrics
-4. Generate a text summary report
-5. Create an interactive HTML dashboard
+Prefer the unified command::
 
-Usage:
-    1. Put PAIRED DATA SYSTEM A.txt and PAIRED DATA SYSTEM B.txt in paired_ttest/raw/.
-       Each file may contain one finite numeric value per line, or matching
-       :BEGIN/:END blocks with tab-separated characteristic and measurement fields.
-    2. Run this script:
+    msa paired [--system-a FILE] [--system-b FILE] [--output DIR]
 
-        python Paired_T_Test_tool.py
-
-    3. Review the generated files:
-       - paired_data.txt              — parsed measurements (TSV)
-       - Paired_T_Test_Summary.txt    — text report
-       - Paired_T_Test_Dashboard.html — interactive HTML dashboard
+Without arguments it reads the paired examples under ``data/examples/paired/``
+and writes data, reports, and dashboards under ``outputs/paired/``.
 """
 
 from __future__ import annotations
@@ -37,13 +24,7 @@ import pandas as pd
 # Root directory — resolve the repository root from inside cli/.
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 
-# Add src/ to the import path so we can use the gage_tracer package
-# without needing a pip install.
-_src_dir = str(PROJECT_ROOT / "src")
-if _src_dir not in sys.path:
-    sys.path.insert(0, _src_dir)
-
-from gage_tracer.paired_ttest import (  # noqa: E402  # type: ignore[import-not-found]
+from gage_tracer.paired_ttest import (
     build_paired_ttest_overview_dataframe,
     calculate_paired_ttest_diagnostics,
     parse_paired_measurements,
@@ -54,24 +35,26 @@ from gage_tracer.paired_ttest import (  # noqa: E402  # type: ignore[import-not-
     create_paired_ttest_html_overview,
     create_paired_ttest_html_zip,
 )
-from gage_tracer.data_parser import paired_input_has_blocks  # noqa: E402  # type: ignore[import-not-found]
+from gage_tracer.data_parser import paired_input_has_blocks
 
 # Structured directories for paired T-Test files.
-PAIRED_ROOT: Path = PROJECT_ROOT / "paired_ttest"
-PAIRED_RAW_DIR: Path = PAIRED_ROOT / "raw"
-PAIRED_DATA_DIR: Path = PAIRED_ROOT / "data"
-PAIRED_REPORT_DIR: Path = PAIRED_ROOT / "reports"
-PAIRED_DASHBOARD_DIR: Path = PAIRED_ROOT / "dashboards"
+PAIRED_OUTPUTS_DIR: Path = PROJECT_ROOT / "outputs" / "paired"
+PAIRED_EXAMPLES_DIR: Path = PROJECT_ROOT / "data" / "examples" / "paired"
 
-SYSTEM_A_FILE: Path = PAIRED_RAW_DIR / "PAIRED DATA SYSTEM A.txt"
-SYSTEM_B_FILE: Path = PAIRED_RAW_DIR / "PAIRED DATA SYSTEM B.txt"
+PAIRED_RAW_DIR: Path = PAIRED_EXAMPLES_DIR
+PAIRED_DATA_DIR: Path = PAIRED_OUTPUTS_DIR
+PAIRED_REPORT_DIR: Path = PAIRED_OUTPUTS_DIR
+PAIRED_DASHBOARD_DIR: Path = PAIRED_OUTPUTS_DIR
+
+SYSTEM_A_FILE: Path = PAIRED_EXAMPLES_DIR / "PAIRED DATA SYSTEM A.txt"
+SYSTEM_B_FILE: Path = PAIRED_EXAMPLES_DIR / "PAIRED DATA SYSTEM B.txt"
 ROOT_SYSTEM_A_FILE: Path = PROJECT_ROOT / "PAIRED DATA SYSTEM A.txt"
 ROOT_SYSTEM_B_FILE: Path = PROJECT_ROOT / "PAIRED DATA SYSTEM B.txt"
-PAIRED_DATA_FILE: Path = PAIRED_DATA_DIR / "paired_data.txt"
+PAIRED_DATA_FILE: Path = PAIRED_OUTPUTS_DIR / "paired_data.txt"
 ROOT_PAIRED_DATA_FILE: Path = PROJECT_ROOT / "paired_data.txt"
-SUMMARY_TXT: Path = PAIRED_REPORT_DIR / "Paired_T_Test_Summary.txt"
+SUMMARY_TXT: Path = PAIRED_OUTPUTS_DIR / "Paired_T_Test_Summary.txt"
 ROOT_SUMMARY_TXT: Path = PROJECT_ROOT / "Paired_T_Test_Summary.txt"
-DASHBOARD_HTML: Path = PAIRED_DASHBOARD_DIR / "Paired_T_Test_Dashboard.html"
+DASHBOARD_HTML: Path = PAIRED_OUTPUTS_DIR / "Paired_T_Test_Dashboard.html"
 ROOT_DASHBOARD_HTML: Path = PROJECT_ROOT / "Paired_T_Test_Dashboard.html"
 
 
@@ -174,6 +157,7 @@ def _run_multicharacteristic(
     raw_b: Path,
     system_a_name: str,
     system_b_name: str,
+    output_dir: Path,
 ) -> None:
     analyses = parse_paired_multicharacteristic_measurements(raw_a, raw_b)
     for analysis in analyses.values():
@@ -188,8 +172,8 @@ def _run_multicharacteristic(
         )
 
     overview = build_paired_ttest_overview_dataframe(analyses)
-    overview_html_path = PAIRED_DASHBOARD_DIR / "Paired_T_Test_Study_Overview.html"
-    zip_path = PAIRED_DASHBOARD_DIR / "Paired_T_Test_HTML_Reports.zip"
+    overview_html_path = output_dir / "Paired_T_Test_Study_Overview.html"
+    zip_path = output_dir / "Paired_T_Test_HTML_Reports.zip"
     create_paired_ttest_html_overview(
         overview, system_a_name, system_b_name, output_path=overview_html_path
     )
@@ -205,20 +189,23 @@ def _run_multicharacteristic(
         data_frames.append(paired_df)
         _generate_text_report(
             analysis["metrics"],
-            PAIRED_REPORT_DIR / f"Paired_T_Test_{characteristic_key}_Summary.txt",
+            output_dir / f"Paired_T_Test_{characteristic_key}_Summary.txt",
             characteristic_name=characteristic,
         )
         create_paired_ttest_dashboard(
             analysis["paired_df"],
             analysis["metrics"],
-            PAIRED_DASHBOARD_DIR / f"Paired_T_Test_{characteristic_key}.html",
+            output_dir / f"Paired_T_Test_{characteristic_key}.html",
             system_a_name=system_a_name,
             system_b_name=system_b_name,
             characteristic_name=characteristic,
         )
 
     pd.concat(data_frames, ignore_index=True).to_csv(
-        PAIRED_DATA_FILE, sep="\t", index=False, float_format="%.8f"
+        output_dir / PAIRED_DATA_FILE.name,
+        sep="\t",
+        index=False,
+        float_format="%.8f",
     )
     overview_report = (
         "PAIRED T-TEST STUDY OVERVIEW\n"
@@ -228,15 +215,19 @@ def _run_multicharacteristic(
         + overview.to_string(index=False)
         + "\n"
     )
-    (PAIRED_REPORT_DIR / "Paired_T_Test_Study_Overview.txt").write_text(
+    (output_dir / "Paired_T_Test_Study_Overview.txt").write_text(
         overview_report, encoding="utf-8"
     )
     print(f"      [OK] Analysed {len(analyses)} characteristics")
-    print(f"      [OK] Study overview -> {overview_html_path.relative_to(PROJECT_ROOT)}")
-    print(f"      [OK] All reports ZIP -> {zip_path.relative_to(PROJECT_ROOT)}")
+    print(f"      [OK] Study overview -> {overview_html_path}")
+    print(f"      [OK] All reports ZIP -> {zip_path}")
 
 
-def run() -> None:
+def run(
+    system_a_file: Path | None = None,
+    system_b_file: Path | None = None,
+    output_dir: Path | None = None,
+) -> int:
     """Run the full paired t-test pipeline.
 
     Steps:
@@ -249,43 +240,68 @@ def run() -> None:
     print("  Paired T-Test Analysis — System A vs. System B")
     print("=" * 60)
 
-    # Ensure structured output directories exist.
-    PAIRED_RAW_DIR.mkdir(parents=True, exist_ok=True)
-    PAIRED_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    PAIRED_REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    PAIRED_DASHBOARD_DIR.mkdir(parents=True, exist_ok=True)
+    use_legacy_defaults = (
+        system_a_file is None and system_b_file is None and output_dir is None
+    )
+    output_path = Path(output_dir) if output_dir is not None else PAIRED_OUTPUTS_DIR
+    output_path.mkdir(parents=True, exist_ok=True)
+    paired_data_file = output_path / PAIRED_DATA_FILE.name
+    summary_path = output_path / SUMMARY_TXT.name
+    dashboard_path = output_path / DASHBOARD_HTML.name
+    if system_a_file is None and system_b_file is None:
+        PAIRED_RAW_DIR.mkdir(parents=True, exist_ok=True)
 
     # Migrate legacy root outputs into structured dirs if needed.
-    if not PAIRED_DATA_FILE.exists() and ROOT_PAIRED_DATA_FILE.exists():
-        shutil.move(str(ROOT_PAIRED_DATA_FILE), str(PAIRED_DATA_FILE))
-        print(f"      Migrated legacy paired data to {PAIRED_DATA_FILE.relative_to(PROJECT_ROOT)}")
-    if not SUMMARY_TXT.exists() and ROOT_SUMMARY_TXT.exists():
-        shutil.move(str(ROOT_SUMMARY_TXT), str(SUMMARY_TXT))
-        print(f"      Migrated legacy report to {SUMMARY_TXT.relative_to(PROJECT_ROOT)}")
-    if not DASHBOARD_HTML.exists() and ROOT_DASHBOARD_HTML.exists():
-        shutil.move(str(ROOT_DASHBOARD_HTML), str(DASHBOARD_HTML))
-        print(f"      Migrated legacy dashboard to {DASHBOARD_HTML.relative_to(PROJECT_ROOT)}")
+    if use_legacy_defaults:
+        if not paired_data_file.exists() and ROOT_PAIRED_DATA_FILE.exists():
+            shutil.move(str(ROOT_PAIRED_DATA_FILE), str(paired_data_file))
+            print(f"      Migrated legacy paired data to {paired_data_file}")
+        if not summary_path.exists() and ROOT_SUMMARY_TXT.exists():
+            shutil.move(str(ROOT_SUMMARY_TXT), str(summary_path))
+            print(f"      Migrated legacy report to {summary_path}")
+        if not dashboard_path.exists() and ROOT_DASHBOARD_HTML.exists():
+            shutil.move(str(ROOT_DASHBOARD_HTML), str(dashboard_path))
+            print(f"      Migrated legacy dashboard to {dashboard_path}")
 
     # Step 1 — Parse paired measurement files.
-    if SYSTEM_A_FILE.exists() and SYSTEM_B_FILE.exists():
+    if system_a_file is not None:
+        raw_a = Path(system_a_file)
+    elif SYSTEM_A_FILE.exists():
         raw_a = SYSTEM_A_FILE
-        raw_b = SYSTEM_B_FILE
-    elif ROOT_SYSTEM_A_FILE.exists() and ROOT_SYSTEM_B_FILE.exists():
+    elif ROOT_SYSTEM_A_FILE.exists():
         raw_a = ROOT_SYSTEM_A_FILE
-        raw_b = ROOT_SYSTEM_B_FILE
-        shutil.copy2(ROOT_SYSTEM_A_FILE, SYSTEM_A_FILE)
-        shutil.copy2(ROOT_SYSTEM_B_FILE, SYSTEM_B_FILE)
-        print(f"      Migrated paired raw inputs to structured folder: {PAIRED_RAW_DIR}")
+        if system_b_file is None:
+            shutil.copy2(ROOT_SYSTEM_A_FILE, SYSTEM_A_FILE)
+            print(f"      Migrated System A input to {SYSTEM_A_FILE}")
     else:
-        print(f"\nERROR: Missing input files.")
-        print(f"  Expected: {SYSTEM_A_FILE.name} and {SYSTEM_B_FILE.name} in {PAIRED_RAW_DIR}")
-        if ROOT_SYSTEM_A_FILE.exists() or ROOT_SYSTEM_B_FILE.exists():
-            print(f"  Or place both files in the repo root and rerun.")
-        return
+        raw_a = None
+
+    if system_b_file is not None:
+        raw_b = Path(system_b_file)
+    elif SYSTEM_B_FILE.exists():
+        raw_b = SYSTEM_B_FILE
+    elif ROOT_SYSTEM_B_FILE.exists():
+        raw_b = ROOT_SYSTEM_B_FILE
+        if system_a_file is None:
+            shutil.copy2(ROOT_SYSTEM_B_FILE, SYSTEM_B_FILE)
+            print(f"      Migrated System B input to {SYSTEM_B_FILE}")
+    else:
+        raw_b = None
+
+    if raw_a is None or not raw_a.is_file():
+        raise FileNotFoundError(
+            f"System A input file not found. Provide its path or place "
+            f"{SYSTEM_A_FILE.name} in {PAIRED_RAW_DIR}."
+        )
+    if raw_b is None or not raw_b.is_file():
+        raise FileNotFoundError(
+            f"System B input file not found. Provide its path or place "
+            f"{SYSTEM_B_FILE.name} in {PAIRED_RAW_DIR}."
+        )
 
     print(f"\n[1/4] Parsing paired measurements...")
-    print(f"      System A: {SYSTEM_A_FILE.name}")
-    print(f"      System B: {SYSTEM_B_FILE.name}")
+    print(f"      System A: {raw_a.name}")
+    print(f"      System B: {raw_b.name}")
 
     try:
         if paired_input_has_blocks(raw_a) != paired_input_has_blocks(raw_b):
@@ -294,25 +310,25 @@ def run() -> None:
             system_a_name = raw_a.stem.replace("PAIRED DATA ", "")
             system_b_name = raw_b.stem.replace("PAIRED DATA ", "")
             _run_multicharacteristic(
-                raw_a, raw_b, system_a_name, system_b_name
+                raw_a, raw_b, system_a_name, system_b_name, output_path
             )
-            return
+            return 0
         paired_df, system_a, system_b, differences = parse_paired_measurements(
-            SYSTEM_A_FILE, SYSTEM_B_FILE
+            raw_a, raw_b
         )
         print(f"      [OK] Loaded {len(system_a)} paired observations")
     except Exception as e:
         print(f"      [ERROR] Error parsing files: {e}")
-        return
+        return 1
 
     # Step 2 — Export paired data to TSV.
     print(f"\n[2/4] Exporting paired data to TSV...")
     try:
-        export_paired_data(paired_df, PAIRED_DATA_FILE)
-        print(f"      [OK] Data exported to {PAIRED_DATA_FILE.relative_to(PROJECT_ROOT)}")
+        export_paired_data(paired_df, paired_data_file)
+        print(f"      [OK] Data exported to {paired_data_file}")
     except Exception as e:
         print(f"      [ERROR] Error exporting: {e}")
-        return
+        return 1
 
     # Step 3 — Compute paired t-test metrics.
     print(f"\n[3/4] Computing paired t-test metrics...")
@@ -330,33 +346,34 @@ def run() -> None:
         )
     except Exception as e:
         print(f"      [ERROR] Error in calculations: {e}")
-        return
+        return 1
 
     # Step 4 — Generate text report.
     print(f"\n[4/4] Generating reports...")
     try:
-        _generate_text_report(metrics, SUMMARY_TXT)
-        print(f"      [OK] Text report -> {SUMMARY_TXT.relative_to(PROJECT_ROOT)}")
+        _generate_text_report(metrics, summary_path)
+        print(f"      [OK] Text report -> {summary_path}")
     except Exception as e:
         print(f"      [ERROR] Error generating text report: {e}")
-        return
+        return 1
 
     # Step 5 — Build the interactive HTML dashboard.
     try:
-        create_paired_ttest_dashboard(paired_df, metrics, DASHBOARD_HTML)
-        print(f"      [OK] Dashboard -> {DASHBOARD_HTML.relative_to(PROJECT_ROOT)}")
+        create_paired_ttest_dashboard(paired_df, metrics, dashboard_path)
+        print(f"      [OK] Dashboard -> {dashboard_path}")
     except Exception as e:
         print(f"      [ERROR] Error generating dashboard: {e}")
-        return
+        return 1
 
     print(f"\n{'=' * 60}")
     print(f"  [SUCCESS]")
     print(f"{'=' * 60}")
     print(f"\nGenerated files:")
-    print(f"  * {PAIRED_DATA_FILE.name}")
-    print(f"  * {SUMMARY_TXT.name}")
-    print(f"  * {DASHBOARD_HTML.name}")
+    print(f"  * {paired_data_file.name}")
+    print(f"  * {summary_path.name}")
+    print(f"  * {dashboard_path.name}")
     print(f"\nOpen the .html file in your browser to view the dashboard.\n")
+    return 0
 
 
 if __name__ == "__main__":

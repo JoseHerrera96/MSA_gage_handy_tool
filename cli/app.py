@@ -2,15 +2,17 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import importlib.util
 from pathlib import Path
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-APP_FILE = PROJECT_ROOT / "src" / "app.py"
 
 
 def main() -> None:
+    app_spec = importlib.util.find_spec("app.main")
+    if app_spec is None or app_spec.origin is None:
+        raise ModuleNotFoundError("The packaged Streamlit app module could not be located.")
+
     subprocess.run(
-        [sys.executable, "-m", "streamlit", "run", str(APP_FILE)],
+        [sys.executable, "-m", "streamlit", "run", app_spec.origin],
         check=True,
     )
 

@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-import sys
 import unittest
 import zipfile
 from io import BytesIO, StringIO
-from pathlib import Path
 from unittest.mock import patch
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 import pandas as pd
 
