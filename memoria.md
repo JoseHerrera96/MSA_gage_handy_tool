@@ -1,12 +1,12 @@
 # Memoria del proyecto
 
 > Archivo local de contexto para agentes de AI. No debe versionarse ni subirse al repositorio.
-> Última actualización: 2026-10-02.
+> Última actualización: 2026-10-10.
 
 ## Estado actual
 
 - Repositorio: `Type_1_gage_handy_tool`.
-- Rama activa al documentar: `improving-paired-preview`.
+- Rama activa al documentar: `Adding-user-input-options`.
 - Último commit visible: `eac74f4 debug GRR tool`.
 - Commit modular anterior: `0aafd70 feat: modularize MSA workflows and improve crossed Gage R&R parsing`.
 - Entorno Python: `.venv`, Python 3.14, paquetes principales pandas, numpy, scipy, matplotlib, streamlit y watchdog.
@@ -20,6 +20,8 @@
   - Gage R&R soporta dos layouts:
     1. 90 bloques explícitos `BEGIN/END` o `:BEGIN/:END`.
     2. Un bloque o flujo continuo con 90 mediciones de una dimensión y tags `C20_A001...C20_A010`.
+  - Streamlit también acepta layouts GRR agrupados: 10 archivos por pieza o 3 por operador; se normalizan a los mismos factores.
+  - Type 1 ofrece formatos con bloques y reportes periódicos sin marcadores.
   - Los headers y footers son ignorados en filas no válidas.
   - El diseño GRR está fijo: 10 partes × 3 operadores × 3 repeticiones = 90 reportes.
   - Para reportes sin tags de parte, `report_order` define el mapeo secuencial: `part-major` (default, Parte → Operador → Ensayo) u `operator-major` (Operador → Parte → Ensayo).
@@ -58,11 +60,13 @@
   - `create_gage_rr_html_zip` crea un ZIP con un HTML independiente por característica y nombres de archivo seguros.
 
 - `src/gage_tracer/paired_ttest.py`
-  - Parser de dos archivos numéricos.
+  - Paired T acepta archivos numéricos, bloques multi-característica y texto no estructurado de una medición por línea.
+  - El modo no estructurado rechaza líneas ambiguas y muestra en la vista previa las líneas fuente de cada par.
+  - `_read_text_lines` elimina un BOM UTF-8 inicial; necesario para `PAIRED DATA SYSTEM A.txt`.
   - Cálculo de paired t-test, IC 95%, dashboard.
   - Diagnósticos Minitab-like: normalidad, outliers > 3σ, tamaño de muestra y potencia/diferencias detectables.
   - Exportación HTML con Summary Report, Diagnostic Report y Report Card.
-  - Advertencia pendiente: descarta líneas no numéricas silenciosamente.
+  - Los parsers numérico y no estructurado rechazan texto no clasificado entre mediciones en lugar de desplazar pares silenciosamente.
 
 - `src/gage_tracer/paired_visualization.py`
   - Gráficos Paired T alineados con Minitab Assistant.
@@ -134,7 +138,7 @@
   - Type 1 con `RAW DATA.txt`
   - Paired T-Test con datos simples
   - Gage R&R con `C20_RAW.txt` y simulación de 90 bloques
-  - `tests/test_modular_domain.py`: 13 pruebas pasan tras los cambios de orden, reparación de marcadores y ZIP.
+  - `tests/test_modular_domain.py`: 35 pruebas pasan, incluyendo opciones de formato, normalización GRR, trazabilidad de líneas Paired T y BOM UTF-8.
   - `python -m compileall -q src cli streamlit_app.py tests` pasa.
   - Prueba directa de `merged.txt`: 90 reportes y métricas de `C20_A001` coinciden con Minitab.
   - ZIP real de `C20_A001` abre y contiene el dashboard HTML esperado.
@@ -144,7 +148,7 @@
 
 - El parser Type 1 sigue siendo sensible a archivos sin tolerancias completas.
 - El parser Type 1 usa `.replace("_OUT1", "")`, que puede fusionar nombres si aparece dentro del nombre y no solo como sufijo.
-- `RAW DATA.txt` local contiene una primera línea anómala `s"C1"` y filas de dos columnas; no es una referencia fiable de Type 1.
+- `gage_type1/raw/RAW DATA.txt` contiene 120 reportes completos de 8 filas y un reporte final truncado con solo `C5` (121 `BEGIN`, 120 `END`). Los modos `blocks` y `periodic` rechazan el archivo completo; el prefijo de 120 reportes se procesa en ambos modos.
 - Los gráficos R Chart usan constantes fijas para tamaño de subgrupo 3; correcto porque el diseño quedó fijo en 3 repeticiones.
 - Los gráficos “Measurement by Part” y “Part × Operator Interaction” son muy similares; si se quiere paridad visual exacta con Minitab, revisar el primero.
 - Los tests existentes `test_calculations.py` y `test_tolerances.py` son scripts de inspección, no pruebas unitarias robustas.
@@ -171,6 +175,18 @@
   - Referencia visual del Diagnostic Report, worksheet order y power.
 - `paired_ttest/docs/paired_t_eval.png`
   - Referencia visual del Report Card.
+
+## Auditoría de datos raw (2026-10-10)
+
+- Los tags cambian entre fuentes; validar estructura y consistencia dentro del estudio, no depender de nombres de característica fijos.
+- `gage_rr/raw/GAGE RR DATA.txt`: 90 reportes, 3 características (`Measurement1`–`Measurement3`); el parser acepta 270 filas.
+- `gage_rr/raw/merged.txt`: 90 reportes, 63 tags de característica; el parser acepta 5,670 filas y asigna 10 piezas × 3 operadores × 3 pruebas.
+- `gage_rr/raw/GAGE RR DATA_backup.txt`: 42 reportes con tres filas que repiten el tag `Measurement`; el parser rechaza duplicados por reporte. No cumple el diseño actual de 90 reportes.
+- `gage_type1/raw/RAW DATA.txt`: 120 reportes completos con las mismas 8 características y un reporte final con solo `C5`. Los parsers no deben completar ni descartar ese reporte silenciosamente.
+- `paired_ttest/raw/OGP DATA _A.txt` y `_b.txt`: 10 reportes por sistema, 8 características; los tags y su orden dentro de cada reporte coinciden. Se procesan como 8 series de 10 pares.
+- `paired_ttest/raw/PAIRED DATA SYSTEM A.txt` y `SYSTEM B.txt`: 30 valores por sistema. System A empieza con BOM UTF-8; tras normalizarlo, ambos archivos producen 30 pares.
+- Verificación: 35 pruebas de `test_modular_domain.py` pasan. El ejemplo Paired T y la aserción de estructura GRR también pasan; compilación, diagnósticos y `git diff --check` limpios.
+- Limitaciones de tests: `tests/_runtests.py` conserva una ruta absoluta de otra máquina; `test_tolerances.py` requiere el archivo ausente `gage data.txt`.
 
 ## Preferencias del usuario observadas
 
