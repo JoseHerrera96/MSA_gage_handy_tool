@@ -235,7 +235,7 @@ Operator, and Trial labels. The default is `part-major`
 msa grr --input data/private/grr-study.txt --report-order operator-major --output outputs/gage_rr
 ```
 
-The Streamlit workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags.
+The Streamlit workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags. It also asks **How are the reports separated?** and offers **BEGIN/END markers** or **Periodic reports without markers** for each upload distribution (one file, one per part, or one per operator). In periodic mode, rows retain the characteristic, measurement, nominal, upper-tolerance, and lower-tolerance columns; repeating the first characteristic begins the next report. Marker-incompatible or malformed rows are rejected.
 
 Streamlit also supports grouped uploads while keeping the same crossed design:
 

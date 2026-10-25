@@ -50,8 +50,45 @@ Cada reporte puede tener varias características.
 | Modalidad | Archivos | Contenido y orden |
 | --- | --- | --- |
 | Archivo único (actual) | 1 | 90 reportes. Si no llevan etiquetas de pieza u operador, se elige el orden global de la secuencia. |
-| Un archivo por pieza (nueva) | 10 (`Part 1` a `Part 10`) | 9 reportes por archivo: tres pruebas del Operator 1, luego tres del Operator 2 y tres del Operator 3. |
-| Un archivo por operador (nueva) | 3 (`Operator 1` a `Operator 3`) | 30 reportes por archivo: tres pruebas de Part 1, después tres de Part 2, hasta Part 10. |
+| Un archivo por pieza (actual) | 10 (`Part 1` a `Part 10`) | 9 reportes por archivo: tres pruebas del Operator 1, luego tres del Operator 2 y tres del Operator 3. |
+| Un archivo por operador (actual) | 3 (`Operator 1` a `Operator 3`) | 30 reportes por archivo: tres pruebas de Part 1, después tres de Part 2, hasta Part 10. |
+
+#### Separación de reportes
+
+La separación es una elección independiente de la distribución de archivos y
+debe mostrarse en la interfaz con el mismo control que Type 1 y Paired T-Test:
+`How are the reports separated?`
+
+| Opción visible | Contrato de entrada | Parser |
+| --- | --- | --- |
+| `BEGIN/END markers` | Cada reporte está encerrado por marcadores completos `BEGIN`/`END` (se aceptan las variantes ya soportadas, como `:BEGIN`, comillas y `:END`). | `blocks` |
+| `Periodic reports without markers` | Reportes consecutivos sin marcadores. Cada fila de medición mantiene las columnas GRR existentes; la repetición de la primera característica inicia el siguiente reporte. | `continuous` |
+
+La opción seleccionada se aplica a todos los archivos del modo elegido: uno,
+los diez archivos por pieza o los tres por operador. No se deben mezclar archivos
+con y sin marcadores en una misma carga agrupada. Para archivos sin marcadores,
+los tags pueden variar entre estudios, pero cada reporte debe tener tags únicos
+y el mismo conjunto de características; no se deben codificar nombres concretos
+como `Measurement1` o `C20_A001` en la lógica general.
+
+El control se muestra antes de las cargas, junto al selector de distribución.
+Valor inicial recomendado: `BEGIN/END markers`, que corresponde al fixture
+GRR principal actual; quien tenga reportes periódicos debe elegir la segunda
+opción. Las claves de los uploaders deben incluir formato y distribución para
+que cambiar de opción no reutilice archivos cargados bajo otro contrato.
+
+La interfaz debe pasar `blocks` o `continuous` explícitamente a
+`transform_gage_rr_data` o `transform_gage_rr_grouped_data`; `auto` se conserva
+para los callers actuales del CLI. La selección `BEGIN/END markers` debe
+rechazar marcadores sin pareja, anidados o reportes incompletos. La selección
+periódica debe rechazar marcadores presentes, ciclos ambiguos, características
+duplicadas o conjuntos incompletos, en lugar de ignorar los marcadores y
+reinterpretar el archivo. Los mensajes deben identificar archivo y reporte.
+
+Los conteos no cambian con el formato de separación: el archivo único contiene
+90 reportes; cada archivo por pieza contiene 9; cada archivo por operador
+contiene 30. La asignación `Part`/`Operator`/`Trial` sigue dependiendo de la
+distribución seleccionada y del orden documentado en la siguiente subsección.
 
 #### Explicación de las secuencias actuales
 
@@ -124,8 +161,11 @@ observaciones`. Ejemplo: `10 observaciones por sistema · 10 pares`.
 
 ## 4. Arquitectura propuesta
 
-- `src/app.py`: organiza el flujo estudio → modalidad → instrucciones → cargas,
-	separando el estado de cada modalidad.
+- `src/app/main.py`: organiza el flujo de estudios y delega cada vista,
+	separando el estado por modalidad.
+- `src/app/views/grr_view.py`: presenta la selección de distribución y
+	separación, instrucciones, cargas y conteo de reportes/características
+	detectados; construye las cargas con claves distintas por formato y modo.
 - `src/gage_tracer/data_parser.py`: implementa o extiende parsers por modalidad,
 	valida entradas y las convierte a estructuras normalizadas. No contiene UI ni
 	cálculos estadísticos.
@@ -156,7 +196,10 @@ formatos nuevos ambiguos.
 ### Fase 2: opciones de interfaz
 
 - Implementar el flujo estudio → formato → instrucciones → cargas.
-- Crear controles GRR etiquetados para 1, 10 o 3 archivos.
+- Conservar los controles GRR existentes para cargar 1, 10 o 3 archivos.
+- Añadir al GRR el selector compartido `How are the reports separated?` con
+	`BEGIN/END markers` y `Periodic reports without markers`, independiente del
+	selector de distribución de archivos.
 - Mostrar diagramas o tablas de orden, cantidades, ejemplo y preview.
 
 **Entrega:** interfaz comprensible con modos explícitos.
@@ -164,8 +207,13 @@ formatos nuevos ambiguos.
 ### Fase 3: parsers y normalización
 
 - Adaptar Type 1 sin separadores al modelo actual de ciclos.
-- Convertir cargas GRR por pieza/operador a registros comunes con
-	`Part`, `Operator`, `Trial`, característica, medición y tolerancias.
+- Enviar la separación seleccionada explícitamente al parser GRR para los tres
+	modos de distribución; conservar `auto` en los flujos CLI existentes.
+- Hacer que el parser GRR rechace marcadores incompatibles con el modo elegido,
+	además de ciclos incompletos, duplicados o ambiguos en formato periódico.
+- Preservar la normalización GRR existente de cargas por pieza/operador y
+	verificar que ambos formatos de separación produzcan los mismos registros
+	comunes con `Part`, `Operator`, `Trial`, característica, medición y tolerancias.
 - Implementar extracción Paired T sin estructura conservando índices/orden de
 	origen para auditar el pareo.
 - Generar errores específicos por archivo, bloque, línea, característica y
@@ -177,6 +225,9 @@ formatos nuevos ambiguos.
 
 - Probar cada parser con entradas válidas, encabezados, ruido, separadores
 	parciales, valores no finitos, duplicados, datos faltantes y orden incorrecto.
+- Cubrir las seis combinaciones GRR (3 distribuciones × 2 separaciones), además
+	de marcadores mal formados, modo seleccionado incompatible, tags variables y
+	el layout legado de una dimensión con tags `C20_A###`.
 - Comprobar que el mismo estudio sintético en modalidades equivalentes produce
 	las mismas filas normalizadas y resultados.
 - Probar cambio de estudio/modalidad, número de archivos, preview, errores y
@@ -201,6 +252,11 @@ formatos nuevos ambiguos.
 	claro.
 - Las cargas múltiples quedan asociadas inequívocamente a pieza u operador.
 - Los formatos existentes siguen funcionando y mantienen sus resultados.
+- GRR ofrece las dos opciones de separación con los mismos textos que Type 1 y
+	Paired T; los seis cruces entre distribución y separación conservan las
+	asignaciones y resultados esperados.
+- Cada archivo de una carga agrupada usa el mismo modo de separación explícito;
+	el parser rechaza mezclas o marcadores contradictorios.
 - Datos ambiguos o incompletos se rechazan con mensajes útiles; nunca se omiten
 	mediciones ni se desplazan pares silenciosamente.
 - Modalidades equivalentes producen los mismos datos normalizados y resultados.
@@ -215,8 +271,9 @@ formatos nuevos ambiguos.
 	 como ruido ignorable?
 3. **Emparejamiento Paired T:** ¿siempre por posición o habrá identificador de
 	 muestra para alinear observaciones?
-4. **GRR:** en cargas por pieza/operador, ¿se mantienen bloques `BEGIN`/`END` o
-	 pueden ser reportes separados únicamente por su patrón de filas?
+4. **GRR:** confirmar con fixtures sintéticos que la característica repetida
+	que inicia cada ciclo en el modo periódico es inequívoca para reportes con
+	una y varias características; rechazar ciclos ambiguos.
 5. Si etiquetas explícitas de pieza/operador contradicen el modo elegido,
 	 ¿prevalecen las etiquetas o se rechaza el archivo?
 6. ¿La primera entrega amplía solo Streamlit o también añade argumentos CLI
@@ -224,8 +281,8 @@ formatos nuevos ambiguos.
 
 ## 8. Orden recomendado
 
-1. Gage R&R con 10 archivos por pieza y 3 por operador: los archivos determinan
-	 una dimensión y las secuencias internas ya están definidas.
+1. Gage R&R con ambos modos de separación y 1, 10 o 3 archivos: los archivos
+	determinan una dimensión y las secuencias internas ya están definidas.
 2. Type 1 sin separadores: comenzar después de acordar y probar el patrón
 	 periódico real.
 3. Paired T sin estructura fija: implementar una vez acordados los criterios

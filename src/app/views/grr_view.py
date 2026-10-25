@@ -41,6 +41,25 @@ def render_gage_rr_page() -> None:
             horizontal=True,
             key="grr_input_mode",
         )
+        input_format_label = st.radio(
+            "How are the reports separated?",
+            options=("BEGIN/END markers", "Periodic reports without markers"),
+            horizontal=True,
+            key="grr_input_format",
+        )
+        input_format = "blocks" if input_format_label == "BEGIN/END markers" else "continuous"
+        if input_format == "blocks":
+            st.caption(
+                "Each report must have a complete BEGIN/END marker pair and the "
+                "same set of measurement characteristics."
+            )
+        else:
+            st.caption(
+                "Reports must be consecutive and contain no BEGIN/END markers. "
+                "Measurement rows use characteristic, measurement, nominal, "
+                "upper tolerance, and lower tolerance columns; repeating the first "
+                "characteristic starts the next report."
+            )
         uploaded = None
         grouped_uploads: list[tuple[str, Any]] = []
         report_order = "part-major"
@@ -63,7 +82,9 @@ def render_gage_rr_page() -> None:
                 "part-major" if report_order_label.startswith("Part") else "operator-major"
             )
             uploaded = st.file_uploader(
-                "Upload GAGE RR DATA.txt", type=["txt"], key="grr_raw"
+                "Upload GAGE RR DATA.txt",
+                type=["txt"],
+                key=f"grr_raw_{input_format}",
             )
         elif input_mode == "10 files · one per part":
             st.caption(
@@ -74,7 +95,7 @@ def render_gage_rr_page() -> None:
                 part_file = st.file_uploader(
                     f"Part {part} · 9 reports",
                     type=["txt"],
-                    key=f"grr_part_file_{part}",
+                    key=f"grr_part_file_{input_format}_{part}",
                 )
                 grouped_uploads.append((f"Part {part}", part_file))
         else:
@@ -86,7 +107,7 @@ def render_gage_rr_page() -> None:
                 operator_file = st.file_uploader(
                     f"Operator {operator} · 30 reports",
                     type=["txt"],
-                    key=f"grr_operator_file_{operator}",
+                    key=f"grr_operator_file_{input_format}_{operator}",
                 )
                 grouped_uploads.append((f"Operator {operator}", operator_file))
 
@@ -120,7 +141,7 @@ def render_gage_rr_page() -> None:
                 df = transform_gage_rr_data(
                     buffer,
                     output_file=None,
-                    input_format="auto",
+                    input_format=input_format,
                     report_order=report_order,
                 )
                 upload_ids = [str(getattr(uploaded, "file_id", uploaded.name))]
@@ -134,7 +155,7 @@ def render_gage_rr_page() -> None:
                 df = transform_gage_rr_grouped_data(
                     grouped_sources,
                     group_by=group_by,
-                    input_format="auto",
+                    input_format=input_format,
                 )
                 upload_ids = [
                     str(getattr(file, "file_id", file.name))

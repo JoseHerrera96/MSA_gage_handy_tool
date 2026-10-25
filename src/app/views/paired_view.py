@@ -38,12 +38,12 @@ def render_paired_page() -> None:
     with st.container():
         st.markdown("#### Step 1 — Upload paired system measurements")
         input_mode = st.radio(
-            "How are the reports formatted?",
-            options=("Structured numeric or BEGIN/END reports", "Unstructured report text"),
+            "How are the reports separated?",
+            options=("BEGIN/END markers", "Periodic reports without markers"),
             horizontal=True,
             key="paired_input_mode",
         )
-        if input_mode == "Unstructured report text":
+        if input_mode == "Periodic reports without markers":
             st.caption(
                 "Upload one file per system. Text-only headers/footers and BEGIN/END "
                 "markers are ignored. Each measurement line must contain exactly one "
@@ -89,7 +89,7 @@ def render_paired_page() -> None:
             if "PAIRED DATA " in system_b_name:
                 system_b_name = system_b_name.replace("PAIRED DATA ", "")
 
-            if input_mode == "Unstructured report text":
+            if input_mode == "Periodic reports without markers":
                 buffer_a = uploaded_to_textio(file_a)
                 buffer_b = uploaded_to_textio(file_b)
                 paired_df, system_a, system_b, differences = (
@@ -214,7 +214,7 @@ def render_paired_page() -> None:
         st.dataframe(paired_df.head(10), use_container_width=True, hide_index=True)
         if len(paired_df) > 10:
             st.caption(f"Showing the first 10 of {len(paired_df)} paired observations.")
-        if input_mode == "Unstructured report text":
+        if input_mode == "Periodic reports without markers":
             st.caption("Source line columns identify the original measurement row in each file.")
 
     with st.container():

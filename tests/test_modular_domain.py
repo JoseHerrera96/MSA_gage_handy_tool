@@ -168,11 +168,17 @@ class GageRRParserTests(unittest.TestCase):
 
     def test_grouped_input_layouts_match_single_file_rows_and_analysis(self) -> None:
         single_reports = []
+        single_continuous_rows = []
         part_files = []
+        part_continuous_files = []
         operator_reports = {operator: [] for operator in range(1, GRR_DESIGN.operators + 1)}
+        operator_continuous_rows = {
+            operator: [] for operator in range(1, GRR_DESIGN.operators + 1)
+        }
 
         for part in range(1, GRR_DESIGN.parts + 1):
             part_reports = []
+            part_continuous_rows = []
             for operator in range(1, GRR_DESIGN.operators + 1):
                 for trial in range(1, GRR_DESIGN.trials_per_part + 1):
                     rows = "\n".join(
@@ -182,21 +188,49 @@ class GageRRParserTests(unittest.TestCase):
                         )
                         for offset, characteristic in enumerate(("C1", "C2"))
                     )
+                    row_lines = rows.splitlines()
                     report = f":BEGIN\n{rows}\n:END"
                     single_reports.append(report)
+                    single_continuous_rows.extend(row_lines)
                     part_reports.append(report)
+                    part_continuous_rows.extend(row_lines)
                     operator_reports[operator].append(report)
+                    operator_continuous_rows[operator].extend(row_lines)
             part_files.append((f"Part {part}.txt", StringIO("\n".join(part_reports))))
+            part_continuous_files.append(
+                (f"Part {part}.txt", StringIO("\n".join(part_continuous_rows)))
+            )
 
-        single_frame = transform_gage_rr_data(StringIO("\n".join(single_reports)))
-        by_part_frame = transform_gage_rr_grouped_data(part_files, group_by="part")
+        single_frame = transform_gage_rr_data(
+            StringIO("\n".join(single_reports)), input_format="blocks"
+        )
+        by_part_frame = transform_gage_rr_grouped_data(
+            part_files, group_by="part", input_format="blocks"
+        )
         by_operator_frame = transform_gage_rr_grouped_data(
             [
                 (f"Operator {operator}.txt", StringIO("\n".join(reports)))
                 for operator, reports in operator_reports.items()
             ],
             group_by="operator",
+            input_format="blocks",
         )
+        continuous_frames = [
+            transform_gage_rr_data(
+                StringIO("\n".join(single_continuous_rows)), input_format="continuous"
+            ),
+            transform_gage_rr_grouped_data(
+                part_continuous_files, group_by="part", input_format="continuous"
+            ),
+            transform_gage_rr_grouped_data(
+                [
+                    (f"Operator {operator}.txt", StringIO("\n".join(rows)))
+                    for operator, rows in operator_continuous_rows.items()
+                ],
+                group_by="operator",
+                input_format="continuous",
+            ),
+        ]
 
         comparable_columns = [
             "Part", "Operator", "Trial", "Characteristic", "Measurement",
@@ -205,14 +239,14 @@ class GageRRParserTests(unittest.TestCase):
         expected_rows = single_frame[comparable_columns].sort_values(
             comparable_columns[:4]
         ).reset_index(drop=True)
-        for frame in (by_part_frame, by_operator_frame):
+        for frame in (by_part_frame, by_operator_frame, *continuous_frames):
             actual_rows = frame[comparable_columns].sort_values(
                 comparable_columns[:4]
             ).reset_index(drop=True)
             pd.testing.assert_frame_equal(expected_rows, actual_rows)
 
         expected_results = calculate_gage_rr_by_characteristic(single_frame)
-        for frame in (by_part_frame, by_operator_frame):
+        for frame in (by_part_frame, by_operator_frame, *continuous_frames):
             actual_results = calculate_gage_rr_by_characteristic(frame)
             for characteristic in expected_results:
                 pd.testing.assert_frame_equal(
@@ -224,6 +258,43 @@ class GageRRParserTests(unittest.TestCase):
                     actual_results[characteristic]["total_grr_pct"],
                     places=10,
                 )
+
+    def test_explicit_grr_separation_rejects_incompatible_markers(self) -> None:
+        measurement = _measurement_row("C1", 1.0)
+
+        with self.assertRaisesRegex(ValueError, "without report markers"):
+            transform_gage_rr_data(
+                StringIO(f":BEGIN\n{measurement}\n:END"),
+                input_format="continuous",
+            )
+        with self.assertRaisesRegex(ValueError, "END marker without a matching BEGIN"):
+            transform_gage_rr_data(
+                StringIO(f":END\n:BEGIN\n{measurement}\n:END"),
+                input_format="blocks",
+            )
+
+    def test_auto_grr_format_keeps_ignoring_unmatched_end_markers(self) -> None:
+        reports = [
+            f":BEGIN\n{_measurement_row('C1', report_number)}\n:END"
+            for report_number in range(GRR_DESIGN.report_blocks)
+        ]
+
+        frame = transform_gage_rr_data(
+            StringIO(":END\n" + "\n".join(reports)), input_format="auto"
+        )
+
+        self.assertEqual(frame["Report"].nunique(), GRR_DESIGN.report_blocks)
+
+    def test_explicit_continuous_grr_rejects_malformed_rows_but_skips_headers(self) -> None:
+        rows = [_measurement_row("C1", value) for value in range(GRR_DESIGN.report_blocks)]
+        header = '"Characteristic"\t"Measurement"\t"Nominal"\t"Upper Tol"\t"Lower Tol"'
+        valid_input = StringIO("\n".join([header, *rows]))
+        malformed_input = StringIO("\n".join([*rows, '"C1"\tbad\t1\t0.1\t-0.1']))
+
+        valid_frame = transform_gage_rr_data(valid_input, input_format="continuous")
+        self.assertEqual(valid_frame["Report"].nunique(), GRR_DESIGN.report_blocks)
+        with self.assertRaisesRegex(ValueError, "Line 91.*valid Gage R&R measurement row"):
+            transform_gage_rr_data(malformed_input, input_format="continuous")
 
     def test_untagged_reports_use_part_operator_trial_order_by_default(self) -> None:
         data = "\n".join(

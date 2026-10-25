@@ -469,7 +469,10 @@ def _validate_gage_rr_block(
     return expected_characteristics, block_records
 
 
-def _parse_gage_rr_blocks(lines: list[str]) -> list[dict[str, object]]:
+def _parse_gage_rr_blocks(
+    lines: list[str],
+    strict_markers: bool = False,
+) -> list[dict[str, object]]:
     records: list[dict[str, object]] = []
     block_records: list[dict[str, object]] = []
     expected_characteristics: tuple[str, ...] | None = None
@@ -483,6 +486,8 @@ def _parse_gage_rr_blocks(lines: list[str]) -> list[dict[str, object]]:
             block_records = []
         elif _is_gage_rr_marker(line, ":END"):
             if not in_block:
+                if strict_markers:
+                    raise ValueError("Encountered an END marker without a matching BEGIN.")
                 continue
             if block_count == 0 and len(block_records) == GRR_DESIGN.report_blocks:
                 records.extend(_normalize_single_dimension_measurements(block_records))
@@ -535,8 +540,34 @@ def _normalize_single_dimension_measurements(
     return records
 
 
-def _parse_gage_rr_continuous(lines: list[str]) -> list[dict[str, object]]:
-    rows = [row for line in lines if (row := _parse_gage_rr_row(line)) is not None]
+def _is_gage_rr_header_or_metadata(line: str) -> bool:
+    normalized = line.strip().strip('"').strip()
+    if re.match(r"^(PATTERN|DISPLAY|UNIT)\s*:", normalized, re.IGNORECASE):
+        return True
+
+    columns = [column.strip().strip('"').casefold() for column in line.split("\t")]
+    return (
+        len(columns) >= 5
+        and columns[0] in {"characteristic", "dimension", "feature"}
+        and columns[1] in {"measurement", "measured", "value"}
+    )
+
+
+def _parse_gage_rr_continuous(
+    lines: list[str],
+    strict_rows: bool = False,
+) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for line_number, line in enumerate(lines, start=1):
+        if not line.strip():
+            continue
+        row = _parse_gage_rr_row(line)
+        if row is not None:
+            rows.append(row)
+        elif strict_rows and "\t" in line and not _is_gage_rr_header_or_metadata(line):
+            raise ValueError(
+                f"Line {line_number} does not contain a valid Gage R&R measurement row."
+            )
     if not rows:
         raise ValueError("No valid measurement rows found in continuous input.")
     if len(rows) == GRR_DESIGN.report_blocks:
@@ -579,17 +610,26 @@ def _parse_gage_rr_raw_data(
     """Parse GRR data as explicit blocks or consecutive repeated rows."""
     if input_format not in {"auto", "blocks", "continuous"}:
         raise ValueError("input_format must be 'auto', 'blocks', or 'continuous'.")
+    explicit_blocks = input_format == "blocks"
     with _open_text_input(input_file) as fh:
         raw_text = fh.read()
     raw_text = raw_text.replace('END"":BEGIN', 'END"\n":BEGIN')
     lines = [line.lstrip("\x1a").strip() for line in raw_text.splitlines()]
-    has_markers = any(
-        _is_gage_rr_marker(line, ":BEGIN") or _is_gage_rr_marker(line, ":END")
-        for line in lines
-    )
+    explicit_continuous = input_format == "continuous"
+    has_begin_marker = any(_is_gage_rr_marker(line, ":BEGIN") for line in lines)
+    has_end_marker = any(_is_gage_rr_marker(line, ":END") for line in lines)
+    has_markers = has_begin_marker or has_end_marker
     if input_format == "auto":
         input_format = "blocks" if has_markers else "continuous"
-    return _parse_gage_rr_blocks(lines) if input_format == "blocks" else _parse_gage_rr_continuous(lines)
+    elif input_format == "continuous" and has_markers:
+        raise ValueError("The continuous format requires input without report markers.")
+    elif input_format == "blocks" and not has_markers:
+        raise ValueError("The blocks format requires BEGIN/END report markers.")
+    return (
+        _parse_gage_rr_blocks(lines, strict_markers=explicit_blocks)
+        if input_format == "blocks"
+        else _parse_gage_rr_continuous(lines, strict_rows=explicit_continuous)
+    )
 
 
 def _build_gage_rr_dataframe(
