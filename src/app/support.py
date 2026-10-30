@@ -7,7 +7,11 @@ from typing import Any, TextIO
 import pandas as pd
 import streamlit as st
 
-from gage_tracer.data_parser import transform_raw_data, transform_gage_rr_data
+from gage_tracer.data_parser import (
+    normalize_custom_report_markers,
+    transform_raw_data,
+    transform_gage_rr_data,
+)
 from gage_tracer.data_parser import paired_input_has_blocks
 from gage_tracer.data_parser import transform_gage_rr_grouped_data
 from gage_tracer.calculations import (
@@ -30,6 +34,7 @@ from gage_tracer.paired_ttest import (
     create_paired_ttest_html_overview,
     create_paired_ttest_html_zip,
     parse_paired_multicharacteristic_measurements,
+    parse_paired_custom_measurements,
     parse_paired_measurements,
     parse_paired_unstructured_measurements,
     calculate_paired_ttest_metrics,

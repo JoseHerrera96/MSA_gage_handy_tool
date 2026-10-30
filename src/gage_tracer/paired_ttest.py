@@ -27,7 +27,10 @@ import pandas as pd
 from scipy import stats as sp_stats
 from scipy.optimize import brentq
 
-from .data_parser import transform_paired_multicharacteristic_data
+from .data_parser import (
+    normalize_custom_report_markers,
+    transform_paired_multicharacteristic_data,
+)
 
 _InputSource = Union[Path, str, TextIO, IO[bytes]]
 
@@ -66,6 +69,7 @@ def _read_text_lines(input_file: _InputSource) -> list[str]:
 _PAIRED_NUMBER_PATTERN = re.compile(
     r"(?<![\w.])[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?(?![\w.])"
 )
+_CUSTOM_NUMERIC_SERIES_KEY = "__custom_numeric_series__"
 
 
 def _extract_unstructured_paired_values(
@@ -305,6 +309,118 @@ def parse_paired_multicharacteristic_measurements(
             "differences": paired_df["Difference"].tolist(),
         }
     return analyses
+
+
+def _custom_numeric_blocks_have_tabular_rows(normalized_text: str) -> bool:
+    in_block = False
+    for line in normalized_text.splitlines():
+        if _is_normalized_custom_marker(line, "BEGIN"):
+            in_block = True
+        elif _is_normalized_custom_marker(line, "END"):
+            in_block = False
+        elif in_block and line.strip() and "\t" in line:
+            return True
+    return False
+
+
+def _is_normalized_custom_marker(line: str, marker: str) -> bool:
+    return line.strip().strip('"').lstrip(":").casefold() == marker.casefold()
+
+
+def _parse_custom_numeric_blocks(
+    normalized_text: str,
+    system_name: str,
+) -> tuple[list[float], list[int]]:
+    values: list[float] = []
+    source_lines: list[int] = []
+    current_rows: list[tuple[int, str]] = []
+    in_block = False
+
+    for line_number, line in enumerate(normalized_text.splitlines(), start=1):
+        if _is_normalized_custom_marker(line, "BEGIN"):
+            if in_block:
+                raise ValueError(f"{system_name} line {line_number}: nested report start marker.")
+            in_block = True
+            current_rows = []
+        elif _is_normalized_custom_marker(line, "END"):
+            if not in_block:
+                raise ValueError(f"{system_name} line {line_number}: end marker has no matching start.")
+            if len(current_rows) != 1:
+                raise ValueError(
+                    f"{system_name} report {len(values) + 1} must contain exactly one numeric measurement."
+                )
+            row_line, raw_value = current_rows[0]
+            try:
+                value = float(raw_value.strip())
+            except ValueError as exc:
+                raise ValueError(
+                    f"{system_name} line {row_line} is not a numeric measurement."
+                ) from exc
+            if not math.isfinite(value):
+                raise ValueError(f"{system_name} line {row_line} must contain a finite measurement.")
+            values.append(value)
+            source_lines.append(row_line)
+            current_rows = []
+            in_block = False
+        elif in_block and line.strip():
+            current_rows.append((line_number, line))
+        elif line.strip():
+            raise ValueError(f"{system_name} line {line_number}: content is outside a custom report block.")
+
+    if in_block:
+        raise ValueError(f"{system_name} ended before the custom end marker appeared.")
+    if len(values) < 2:
+        raise ValueError(f"{system_name} must contain at least two custom numeric report blocks.")
+    return values, source_lines
+
+
+def parse_paired_custom_measurements(
+    file_a: _InputSource,
+    file_b: _InputSource,
+    start_marker: str,
+    end_marker: str,
+) -> dict[str, dict[str, Any]]:
+    """Parse customized-marker paired reports as numeric series or labeled rows."""
+    normalized_a = normalize_custom_report_markers(
+        file_a, start_marker, end_marker, source_name="System A"
+    )
+    normalized_b = normalize_custom_report_markers(
+        file_b, start_marker, end_marker, source_name="System B"
+    )
+    has_tabular_a = _custom_numeric_blocks_have_tabular_rows(normalized_a)
+    has_tabular_b = _custom_numeric_blocks_have_tabular_rows(normalized_b)
+    if has_tabular_a != has_tabular_b:
+        raise ValueError("Both systems must use the same custom report content structure.")
+    if has_tabular_a:
+        return parse_paired_multicharacteristic_measurements(
+            StringIO(normalized_a), StringIO(normalized_b)
+        )
+
+    values_a, source_lines_a = _parse_custom_numeric_blocks(normalized_a, "System A")
+    values_b, source_lines_b = _parse_custom_numeric_blocks(normalized_b, "System B")
+    if len(values_a) != len(values_b):
+        raise ValueError(
+            f"Mismatched custom report counts: System A has {len(values_a)}, "
+            f"System B has {len(values_b)}."
+        )
+    paired_df = pd.DataFrame(
+        {
+            "Observation": range(1, len(values_a) + 1),
+            "System_A": values_a,
+            "System_B": values_b,
+            "Difference": [value_a - value_b for value_a, value_b in zip(values_a, values_b)],
+            "System_A_Source_Line": source_lines_a,
+            "System_B_Source_Line": source_lines_b,
+        }
+    )
+    return {
+        _CUSTOM_NUMERIC_SERIES_KEY: {
+            "paired_df": paired_df,
+            "system_a": values_a,
+            "system_b": values_b,
+            "differences": paired_df["Difference"].tolist(),
+        }
+    }
 
 
 def _holm_adjusted_p_values(p_values: list[float]) -> list[float]:

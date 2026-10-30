@@ -27,6 +27,13 @@ anteriores que tengan otro significado.
 | --- | --- | --- |
 | Reportes con separadores (actual) | 1 | Reportes delimitados por `BEGIN`/`END`, con características, mediciones y especificaciones. |
 | Reportes consecutivos sin separadores (nueva) | 1 | Reportes contiguos; puede haber encabezados u otras líneas que no sean mediciones. El parser identifica ciclos mediante una secuencia periódica de características y columnas/especificaciones. |
+| Separadores personalizados | 1 | Marcadores de inicio y fin configurables, cada uno en su propia línea. Se permite el mismo marcador para abrir/cerrar reportes alternados. |
+
+En separación personalizada, los marcadores se comparan sin distinguir
+mayúsculas/minúsculas y después de recortar espacios. El texto fuera de los
+reportes se ignora; se conservan las líneas vacías para no desplazar la
+trazabilidad de origen. Un mismo marcador debe aparecer un número par de veces;
+los bloques incompletos o mal formados se rechazan.
 
 Instrucciones de la interfaz: un archivo con todas las mediciones de la misma
 pieza o estándar; explicar las columnas de característica, medición, referencia
@@ -63,6 +70,12 @@ debe mostrarse en la interfaz con el mismo control que Type 1 y Paired T-Test:
 | --- | --- | --- |
 | `BEGIN/END markers` | Cada reporte está encerrado por marcadores completos `BEGIN`/`END` (se aceptan las variantes ya soportadas, como `:BEGIN`, comillas y `:END`). | `blocks` |
 | `Periodic reports without markers` | Reportes consecutivos sin marcadores. Cada fila de medición mantiene las columnas GRR existentes; la repetición de la primera característica inicia el siguiente reporte. | `continuous` |
+| `Customized` | Marcadores configurables de inicio y fin en líneas completas; el mismo texto puede alternarse para abrir y cerrar reportes. Texto fuera de los reportes se ignora. | Normalización a `blocks` |
+
+Los marcadores personalizados se comparan sin distinguir mayúsculas/minúsculas y
+después de recortar espacios. El marcador único debe aparecer un número par de
+veces; una secuencia incompleta o mal balanceada produce un error. La opción se
+aplica igualmente a archivos únicos, por pieza y por operador.
 
 La opción seleccionada se aplica a todos los archivos del modo elegido: uno,
 los diez archivos por pieza o los tres por operador. No se deben mezclar archivos
@@ -136,6 +149,12 @@ orden de reporte.
 | --- | --- | --- |
 | Archivos estructurados (actual) | 2 | Valores numéricos por línea o bloques `BEGIN`/`END` para varias características. Ambos sistemas deben tener igual cantidad y estructura compatible. |
 | Texto sin estructura fija (nueva) | 2 | Puede no tener encabezados ni marcadores, o tener marcadores incompletos. Las mediciones se extraen con reglas explícitas del modo elegido; el orden determina el pareo. |
+| Separadores personalizados | 2 | Marcadores configurables para reportes numéricos o filas tabulares de características; ambos sistemas deben tener reportes compatibles y el mismo orden. |
+
+La opción personalizada normaliza los marcadores a bloques estándar antes de
+analizar. Acepta el mismo marcador para abrir/cerrar reportes alternados; se
+ignora el texto exterior y se conserva la línea de origen. No confundirla con
+`Texto sin estructura fija`, que no requiere límites de reporte.
 
 Para texto sin estructura, el MVP debería aceptar solo patrones inequívocos:
 
@@ -252,13 +271,16 @@ formatos nuevos ambiguos.
 	claro.
 - Las cargas múltiples quedan asociadas inequívocamente a pieza u operador.
 - Los formatos existentes siguen funcionando y mantienen sus resultados.
-- GRR ofrece las dos opciones de separación con los mismos textos que Type 1 y
-	Paired T; los seis cruces entre distribución y separación conservan las
-	asignaciones y resultados esperados.
+- Type 1, Paired T y GRR ofrecen `BEGIN/END markers`, `Periodic reports without
+	markers` cuando aplica y `Customized`; los modos personalizados admiten un
+	marcador repetido como inicio y fin, y omiten contenido fuera de los bloques.
+- GRR conserva las asignaciones y resultados esperados para las tres
+	distribuciones de archivos y cada modo de separación compatible.
 - Cada archivo de una carga agrupada usa el mismo modo de separación explícito;
 	el parser rechaza mezclas o marcadores contradictorios.
-- Datos ambiguos o incompletos se rechazan con mensajes útiles; nunca se omiten
-	mediciones ni se desplazan pares silenciosamente.
+- Datos ambiguos o incompletos dentro de un reporte se rechazan con mensajes
+	útiles; las líneas fuera de bloques personalizados se ignoran por contrato,
+	sin desplazar la numeración de origen ni los pares.
 - Modalidades equivalentes producen los mismos datos normalizados y resultados.
 - Cada modalidad tiene ejemplo, preview y pruebas automatizadas.
 

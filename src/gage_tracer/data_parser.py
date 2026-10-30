@@ -46,6 +46,64 @@ def _open_text_input(input_file: _InputSource) -> TextIO:
     raise TypeError("input_file must be a path or a text/binary stream")
 
 
+def normalize_custom_report_markers(
+    input_file: _InputSource,
+    start_marker: str,
+    end_marker: str,
+    source_name: str = "Input",
+) -> str:
+    """Normalize custom whole-line report separators to quoted BEGIN/END markers."""
+    start = start_marker.strip()
+    end = end_marker.strip()
+    if not start or not end:
+        raise ValueError("Both custom report markers are required.")
+
+    with _open_text_input(input_file) as fh:
+        lines = fh.read().splitlines()
+
+    same_marker = start.casefold() == end.casefold()
+    in_report = False
+    marker_count = 0
+    normalized_lines: list[str] = []
+
+    for line_number, line in enumerate(lines, start=1):
+        marker_line = line.strip().strip('"').strip()
+        normalized_marker = marker_line.casefold()
+        if same_marker and normalized_marker == start.casefold():
+            marker_count += 1
+            if in_report:
+                normalized_lines.append('":END"')
+                in_report = False
+            else:
+                normalized_lines.append('":BEGIN"')
+                in_report = True
+        elif not same_marker and normalized_marker == start.casefold():
+            marker_count += 1
+            if in_report:
+                raise ValueError(
+                    f"{source_name} line {line_number}: start marker appeared before the prior report ended."
+                )
+            normalized_lines.append('":BEGIN"')
+            in_report = True
+        elif not same_marker and normalized_marker == end.casefold():
+            marker_count += 1
+            if not in_report:
+                raise ValueError(
+                    f"{source_name} line {line_number}: end marker has no matching start marker."
+                )
+            normalized_lines.append('":END"')
+            in_report = False
+        else:
+            normalized_lines.append(line if in_report else "")
+
+    if marker_count == 0:
+        raise ValueError(f"{source_name} does not contain the configured custom report markers.")
+    if in_report:
+        missing_marker = "end marker" if not same_marker else "matching marker"
+        raise ValueError(f"{source_name} ended before the custom {missing_marker} appeared.")
+    return "\n".join(normalized_lines)
+
+
 def _parse_raw_data(
     input_file: _InputSource,
 ) -> tuple[list[dict[str, float]], dict[str, dict[str, float]]]:

@@ -205,6 +205,13 @@ incomplete or inconsistent cycles. The bundled `data/examples/type1/RAW DATA.txt
 contains 120 complete reports followed by a truncated report; the parser rejects
 that final incomplete report rather than silently dropping or completing it.
 
+The Type 1 workflow also offers **Customized** report separation. Enter start and
+end markers that each occupy their own line; matching is case-insensitive after
+trimming whitespace. Use the same marker in both fields when one delimiter
+alternates between opening and closing reports; it must occur an even number of
+times. Text outside marked reports is ignored, while malformed or incomplete
+reports inside markers are rejected.
+
 #### Paired T-Test
 For a paired comparison, specify both files:
 
@@ -235,7 +242,7 @@ Operator, and Trial labels. The default is `part-major`
 msa grr --input data/private/grr-study.txt --report-order operator-major --output outputs/gage_rr
 ```
 
-The Streamlit workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags. It also asks **How are the reports separated?** and offers **BEGIN/END markers** or **Periodic reports without markers** for each upload distribution (one file, one per part, or one per operator). In periodic mode, rows retain the characteristic, measurement, nominal, upper-tolerance, and lower-tolerance columns; repeating the first characteristic begins the next report. Marker-incompatible or malformed rows are rejected.
+The Streamlit workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags. It also asks **How are the reports separated?** and offers **BEGIN/END markers**, **Periodic reports without markers**, or **Customized** for each upload distribution (one file, one per part, or one per operator). In periodic mode, rows retain the characteristic, measurement, nominal, upper-tolerance, and lower-tolerance columns; repeating the first characteristic begins the next report. Customized markers must each occupy their own line; use the same marker in both fields to alternate report boundaries. Text outside marked reports is ignored, and malformed or incomplete report blocks are rejected.
 
 Streamlit also supports grouped uploads while keeping the same crossed design:
 
@@ -275,6 +282,13 @@ both files must yield the same number of measurements. This mode handles one
 measurement series per system; use the structured block format for
 multi-characteristic studies. The paired-observation preview includes each
 measurement's original line number in its source file.
+
+The paired workflow also offers **Customized** separation for either one numeric
+measurement per report or tab-separated characteristic/measurement rows. Enter
+whole-line start and end markers for both system files; the marker pairs and
+characteristic order must match. A single repeated delimiter can be entered in
+both fields and must occur an even number of times. Text outside marked reports
+is ignored; source line columns continue to refer to the original files.
 
 ## Notes
 

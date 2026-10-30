@@ -24,6 +24,8 @@ from app.support import (
     paired_data_quality_summary,
     paired_input_has_blocks,
     paired_outliers_dataframe,
+    normalize_custom_report_markers,
+    parse_paired_custom_measurements,
     parse_paired_measurements,
     parse_paired_multicharacteristic_measurements,
     parse_paired_unstructured_measurements,
@@ -37,9 +39,17 @@ def render_paired_page() -> None:
     st.header("Paired t Test for the Mean of Two Systems")
     with st.container():
         st.markdown("#### Step 1 — Upload paired system measurements")
+        st.info(
+            "Upload one file for System A and one for System B. Measurements are "
+            "paired by report order, so both files must contain compatible observations."
+        )
         input_mode = st.radio(
             "How are the reports separated?",
-            options=("BEGIN/END markers", "Periodic reports without markers"),
+            options=(
+                "BEGIN/END markers",
+                "Periodic reports without markers",
+                "Customized",
+            ),
             horizontal=True,
             key="paired_input_mode",
         )
@@ -52,6 +62,22 @@ def render_paired_page() -> None:
                 "must contain the same observations in the same order."
             )
             input_mode_key = "unstructured"
+        elif input_mode == "Customized":
+            marker_cols = st.columns(2)
+            with marker_cols[0]:
+                custom_start_marker = st.text_input(
+                    "Start marker", value="BEGIN", key="paired_custom_start_marker"
+                )
+            with marker_cols[1]:
+                custom_end_marker = st.text_input(
+                    "End marker", value="END", key="paired_custom_end_marker"
+                )
+            st.caption(
+                "Markers must occupy their own line. Use the same marker for both fields "
+                "when each report is separated by one repeated delimiter. Text outside "
+                "report markers is ignored."
+            )
+            input_mode_key = "customized"
         else:
             st.caption(
                 "Upload one file per system. Use one finite number per line, or matching "
@@ -89,7 +115,23 @@ def render_paired_page() -> None:
             if "PAIRED DATA " in system_b_name:
                 system_b_name = system_b_name.replace("PAIRED DATA ", "")
 
-            if input_mode == "Periodic reports without markers":
+            if input_mode == "Customized":
+                normalized_a = normalize_custom_report_markers(
+                    uploaded_to_textio(file_a),
+                    custom_start_marker,
+                    custom_end_marker,
+                    source_name=system_a_name,
+                )
+                normalized_b = normalize_custom_report_markers(
+                    uploaded_to_textio(file_b),
+                    custom_start_marker,
+                    custom_end_marker,
+                    source_name=system_b_name,
+                )
+                analyses = parse_paired_custom_measurements(
+                    normalized_a, normalized_b
+                )
+            elif input_mode == "Periodic reports without markers":
                 buffer_a = uploaded_to_textio(file_a)
                 buffer_b = uploaded_to_textio(file_b)
                 paired_df, system_a, system_b, differences = (
@@ -112,16 +154,30 @@ def render_paired_page() -> None:
                     analyses = parse_paired_multicharacteristic_measurements(
                         uploaded_to_textio(file_a), uploaded_to_textio(file_b)
                     )
-                    for analysis in analyses.values():
-                        analysis["metrics"] = calculate_paired_ttest_metrics(
-                            analysis["system_a"], analysis["system_b"]
-                        )
-                        analysis["diagnostics"] = calculate_paired_ttest_diagnostics(
-                            analysis["system_a"],
-                            analysis["system_b"],
-                            system_a_name=system_a_name,
-                            system_b_name=system_b_name,
-                        )
+                else:
+                    analyses = None
+
+            if input_mode == "Customized" or (
+                input_mode != "Periodic reports without markers" and analyses is not None
+            ):
+                for analysis in analyses.values():
+                    analysis["metrics"] = calculate_paired_ttest_metrics(
+                        analysis["system_a"], analysis["system_b"]
+                    )
+                    analysis["diagnostics"] = calculate_paired_ttest_diagnostics(
+                        analysis["system_a"],
+                        analysis["system_b"],
+                        system_a_name=system_a_name,
+                        system_b_name=system_b_name,
+                    )
+                numeric_series_key = "__custom_numeric_series__"
+                is_custom_numeric_series = (
+                    input_mode == "Customized"
+                    and list(analyses) == [numeric_series_key]
+                )
+                if is_custom_numeric_series:
+                    selected_report = numeric_series_key
+                else:
                     overview = build_paired_ttest_overview_dataframe(analyses)
                     overview_label = "Study Overview"
                     selected_report = st.selectbox(
@@ -176,28 +232,29 @@ def render_paired_page() -> None:
                             )
                         return
 
-                    selected_analysis = analyses[selected_report]
+                selected_analysis = analyses[selected_report]
+                paired_df = selected_analysis["paired_df"]
+                system_a = selected_analysis["system_a"]
+                system_b = selected_analysis["system_b"]
+                differences = selected_analysis["differences"]
+                metrics = selected_analysis["metrics"]
+                diagnostics = selected_analysis["diagnostics"]
+                if not is_custom_numeric_series:
                     selected_characteristic = selected_report
-                    paired_df = selected_analysis["paired_df"]
-                    system_a = selected_analysis["system_a"]
-                    system_b = selected_analysis["system_b"]
-                    differences = selected_analysis["differences"]
-                    metrics = selected_analysis["metrics"]
-                    diagnostics = selected_analysis["diagnostics"]
                     st.subheader(f"Characteristic: {selected_report}")
-                else:
-                    buffer_a = uploaded_to_textio(file_a)
-                    buffer_b = uploaded_to_textio(file_b)
-                    paired_df, system_a, system_b, differences = parse_paired_measurements(
-                        buffer_a, buffer_b
-                    )
-                    metrics = calculate_paired_ttest_metrics(system_a, system_b)
-                    diagnostics = calculate_paired_ttest_diagnostics(
-                        system_a,
-                        system_b,
-                        system_a_name=system_a_name,
-                        system_b_name=system_b_name,
-                    )
+            elif input_mode != "Periodic reports without markers":
+                buffer_a = uploaded_to_textio(file_a)
+                buffer_b = uploaded_to_textio(file_b)
+                paired_df, system_a, system_b, differences = parse_paired_measurements(
+                    buffer_a, buffer_b
+                )
+                metrics = calculate_paired_ttest_metrics(system_a, system_b)
+                diagnostics = calculate_paired_ttest_diagnostics(
+                    system_a,
+                    system_b,
+                    system_a_name=system_a_name,
+                    system_b_name=system_b_name,
+                )
 
     except ValueError as exc:
         show_processing_error("Unable to align paired data. Verify the selected input format and observation order.", exc)
@@ -214,7 +271,7 @@ def render_paired_page() -> None:
         st.dataframe(paired_df.head(10), use_container_width=True, hide_index=True)
         if len(paired_df) > 10:
             st.caption(f"Showing the first 10 of {len(paired_df)} paired observations.")
-        if input_mode == "Periodic reports without markers":
+        if input_mode in {"Periodic reports without markers", "Customized"}:
             st.caption("Source line columns identify the original measurement row in each file.")
 
     with st.container():

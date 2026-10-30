@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from gage_tracer.data_parser import (
+    normalize_custom_report_markers,
     paired_input_has_blocks,
     transform_raw_data,
     transform_gage_rr_data,
@@ -26,6 +27,7 @@ from gage_tracer.paired_ttest import (
     create_paired_ttest_html_zip,
     parse_paired_measurements,
     parse_paired_multicharacteristic_measurements,
+    parse_paired_custom_measurements,
     parse_paired_unstructured_measurements,
 )
 from gage_tracer.presentation import (
@@ -93,6 +95,67 @@ class Type1ParserTests(unittest.TestCase):
                 StringIO('"C1"\t1\t1\t0.1\t-0.1'), input_format="blocks"
             )
 
+    def test_custom_markers_parse_type1_reports_and_ignore_outside_rows(self) -> None:
+        raw = (
+            "Header row\nSTART\n"
+            + _measurement_row("C1", 1.1)
+            + "\nSTOP\nFooter row\nSTART\n"
+            + _measurement_row("C1", 1.2)
+            + "\nSTOP\n"
+            + _measurement_row("Outside", 99.0)
+        )
+        normalized = normalize_custom_report_markers(StringIO(raw), "START", "STOP")
+
+        frame = transform_raw_data(StringIO(normalized), input_format="blocks")
+
+        self.assertEqual(frame["C1"].tolist(), ["1.1000000", "1.2000000"])
+        self.assertNotIn("Outside", frame.columns)
+
+
+class CustomMarkerTests(unittest.TestCase):
+    def test_custom_markers_normalize_to_report_blocks(self) -> None:
+        normalized = normalize_custom_report_markers(
+            StringIO("START\nrow 1\nSTOP\nSTART\nrow 2\nSTOP"),
+            "START",
+            "STOP",
+        )
+
+        self.assertEqual(
+            normalized,
+            '":BEGIN"\nrow 1\n":END"\n":BEGIN"\nrow 2\n":END"',
+        )
+
+    def test_same_custom_marker_alternates_between_start_and_end(self) -> None:
+        normalized = normalize_custom_report_markers(
+            StringIO("REPORT\nrow 1\nREPORT\nREPORT\nrow 2\nREPORT"),
+            "REPORT",
+            "REPORT",
+        )
+
+        self.assertEqual(
+            normalized,
+            '":BEGIN"\nrow 1\n":END"\n":BEGIN"\nrow 2\n":END"',
+        )
+
+    def test_custom_marker_normalization_ignores_outside_content_and_keeps_lines(self) -> None:
+        normalized = normalize_custom_report_markers(
+            StringIO("header\nSTART\ninside\nSTOP\nfooter"), "START", "STOP"
+        )
+
+        self.assertEqual(normalized, '\n":BEGIN"\ninside\n":END"\n')
+
+    def test_custom_marker_normalization_rejects_missing_or_unbalanced_markers(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Both custom report markers are required"):
+            normalize_custom_report_markers(StringIO("START\nrow"), "START", "")
+        with self.assertRaisesRegex(ValueError, "matching marker"):
+            normalize_custom_report_markers(
+                StringIO("REPORT\nrow\nREPORT\nrow\nREPORT\nrow"),
+                "REPORT",
+                "REPORT",
+            )
+        with self.assertRaisesRegex(ValueError, "end marker has no matching start marker"):
+            normalize_custom_report_markers(StringIO("STOP\nrow"), "START", "STOP")
+
 
 class StudyConfigTests(unittest.TestCase):
     def test_fixed_crossed_design(self) -> None:
@@ -109,6 +172,19 @@ class StudyConfigTests(unittest.TestCase):
 
 
 class GageRRParserTests(unittest.TestCase):
+    def test_custom_same_marker_parses_ninety_gage_rr_reports(self) -> None:
+        reports = [
+            f"REPORT\n{_measurement_row('C1', 1 + report / 100)}\nREPORT"
+            for report in range(90)
+        ]
+        raw = "Header row\n" + "\n".join(reports) + "\nFooter row"
+        normalized = normalize_custom_report_markers(StringIO(raw), "REPORT", "REPORT")
+
+        frame = transform_gage_rr_data(StringIO(normalized), input_format="blocks")
+
+        self.assertEqual(frame["Report"].nunique(), 90)
+        self.assertEqual(frame["Characteristic"].unique().tolist(), ["C1"])
+
     def test_grouped_files_by_part_assign_operator_and_trial_order(self) -> None:
         files = []
         for part in range(1, GRR_DESIGN.parts + 1):
@@ -393,6 +469,48 @@ class GageRRParserTests(unittest.TestCase):
 
 
 class PairedBlockParserTests(unittest.TestCase):
+    def test_custom_markers_parse_numeric_pairs_with_same_marker(self) -> None:
+        system_a = StringIO("REPORT\n10.1\nREPORT\nREPORT\n10.2\nREPORT")
+        system_b = StringIO("REPORT\n10.0\nREPORT\nREPORT\n10.4\nREPORT")
+
+        analyses = parse_paired_custom_measurements(
+            system_a, system_b, "REPORT", "REPORT"
+        )
+
+        self.assertEqual(analyses["__custom_numeric_series__"]["system_a"], [10.1, 10.2])
+        self.assertEqual(analyses["__custom_numeric_series__"]["system_b"], [10.0, 10.4])
+        self.assertEqual(
+            analyses["__custom_numeric_series__"]["paired_df"]["System_A_Source_Line"].tolist(),
+            [2, 5],
+        )
+
+    def test_custom_markers_parse_multicharacteristic_blocks(self) -> None:
+        system_a = StringIO(
+            "<MEASURE>\nC1\t1.1\nC2\t2.1\n</MEASURE>\n"
+            "<MEASURE>\nC1\t1.2\nC2\t2.2\n</MEASURE>"
+        )
+        system_b = StringIO(
+            "<MEASURE>\nC1\t1.0\nC2\t2.0\n</MEASURE>\n"
+            "<MEASURE>\nC1\t1.1\nC2\t2.1\n</MEASURE>"
+        )
+
+        analyses = parse_paired_custom_measurements(
+            system_a, system_b, "<MEASURE>", "</MEASURE>"
+        )
+
+        self.assertEqual(list(analyses), ["C1", "C2"])
+        self.assertEqual(analyses["C1"]["system_a"], [1.1, 1.2])
+        self.assertEqual(analyses["C2"]["system_b"], [2.0, 2.1])
+
+    def test_custom_markers_require_matching_paired_content_shapes(self) -> None:
+        system_a = StringIO("START\n10.1\nEND\nSTART\n10.2\nEND")
+        system_b = StringIO(
+            "START\nC1\t10.0\nEND\nSTART\nC1\t10.1\nEND"
+        )
+
+        with self.assertRaisesRegex(ValueError, "same custom report content structure"):
+            parse_paired_custom_measurements(system_a, system_b, "START", "END")
+
     def test_unstructured_text_extracts_values_and_ignores_headers_and_markers(self) -> None:
         data_a = (
             'System A measurements\nSample 1\n":BEGIN"\t"09:08:26"\n'
