@@ -182,6 +182,37 @@ The UI provides:
 - Live metric panels
 - Exportable HTML dashboards
 
+### Input Examples
+
+Ready-to-upload examples in `data/examples/input_modes/` use the same
+measurements across formats. Select the corresponding option in Streamlit:
+
+| Study | BEGIN/END markers | Periodic reports without markers | Customized |
+| --- | --- | --- | --- |
+| Type 1 | [blocks.txt](data/examples/input_modes/type1/blocks.txt) | [periodic.txt](data/examples/input_modes/type1/periodic.txt) | [custom.txt](data/examples/input_modes/type1/custom.txt) |
+| Gage R&R | [single.txt](data/examples/input_modes/gage_rr/blocks/single.txt) | [single.txt](data/examples/input_modes/gage_rr/periodic/single.txt) | [single.txt](data/examples/input_modes/gage_rr/custom/single.txt) |
+| Paired T | [System A](data/examples/input_modes/paired/blocks/system_a.txt), [System B](data/examples/input_modes/paired/blocks/system_b.txt) | [System A](data/examples/input_modes/paired/periodic/system_a.txt), [System B](data/examples/input_modes/paired/periodic/system_b.txt) | [System A](data/examples/input_modes/paired/custom/system_a.txt), [System B](data/examples/input_modes/paired/custom/system_b.txt) |
+
+For every **Customized** example, enter `REPORT` in both the Start marker and
+End marker fields. Each report is enclosed by a pair of `REPORT` lines.
+
+Gage R&R also provides `parts/part_01.txt` through `parts/part_10.txt` and
+`operators/operator_1.txt` through `operators/operator_3.txt` in each of the
+`blocks`, `periodic`, and `custom` directories. Select the matching upload
+distribution and assign each file to the corresponding part or operator. For
+`single.txt`, choose `Part → Operator → Trial`. All sets represent the same
+90-report study.
+
+Paired T additionally has `multicharacteristic_a.txt` and
+`multicharacteristic_b.txt` in the `blocks` and `custom` directories. Load one
+file per system; the periodic mode accepts a single numeric series per system.
+The Type 1 examples contain 20 complete reports. These examples are derived
+from the existing sample files and can be regenerated with:
+
+```powershell
+python data/examples/generate_input_modes.py
+```
+
 ### CLI Workflows
 
 #### Type 1 Gage Study
@@ -192,7 +223,7 @@ output directories with:
 msa type1 --input data/private/type1-study.txt --output outputs/type1
 ```
 
-In Streamlit, the Type 1 workflow offers two input layouts. The existing layout
+In Streamlit, the Type 1 workflow offers three input layouts. The existing layout
 uses one file with complete `BEGIN`/`END` report blocks. The delimiter-free
 layout uses one file with consecutive reports and no required markers. Each
 measurement row must be tab-separated as

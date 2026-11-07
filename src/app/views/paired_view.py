@@ -24,7 +24,6 @@ from app.support import (
     paired_data_quality_summary,
     paired_input_has_blocks,
     paired_outliers_dataframe,
-    normalize_custom_report_markers,
     parse_paired_custom_measurements,
     parse_paired_measurements,
     parse_paired_multicharacteristic_measurements,
@@ -116,20 +115,11 @@ def render_paired_page() -> None:
                 system_b_name = system_b_name.replace("PAIRED DATA ", "")
 
             if input_mode == "Customized":
-                normalized_a = normalize_custom_report_markers(
+                analyses = parse_paired_custom_measurements(
                     uploaded_to_textio(file_a),
-                    custom_start_marker,
-                    custom_end_marker,
-                    source_name=system_a_name,
-                )
-                normalized_b = normalize_custom_report_markers(
                     uploaded_to_textio(file_b),
                     custom_start_marker,
                     custom_end_marker,
-                    source_name=system_b_name,
-                )
-                analyses = parse_paired_custom_measurements(
-                    normalized_a, normalized_b
                 )
             elif input_mode == "Periodic reports without markers":
                 buffer_a = uploaded_to_textio(file_a)
