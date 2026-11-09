@@ -34,6 +34,8 @@ from gage_tracer.paired_ttest import (
     create_paired_ttest_html_overview,
     create_paired_ttest_html_zip,
     parse_paired_multicharacteristic_measurements,
+    paired_input_has_periodic_tabular_rows,
+    parse_paired_periodic_multicharacteristic_measurements,
     parse_paired_custom_measurements,
     parse_paired_measurements,
     parse_paired_unstructured_measurements,

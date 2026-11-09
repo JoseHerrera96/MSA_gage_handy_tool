@@ -27,6 +27,8 @@ from gage_tracer.paired_ttest import (
     create_paired_ttest_html_zip,
     parse_paired_measurements,
     parse_paired_multicharacteristic_measurements,
+    paired_input_has_periodic_tabular_rows,
+    parse_paired_periodic_multicharacteristic_measurements,
     parse_paired_custom_measurements,
     parse_paired_unstructured_measurements,
 )
@@ -469,6 +471,66 @@ class GageRRParserTests(unittest.TestCase):
 
 
 class PairedBlockParserTests(unittest.TestCase):
+    def test_periodic_tabular_pairs_ignore_optional_specifications(self) -> None:
+        system_a = 'C1\t1.1\t1\t0.1\t-0.1\nC2\t2.1\nC1\t1.2\nC2\t2.2\t2\t0.2\t-0.2'
+        system_b = 'C1\t1.0\nC2\t2.0\t2\t0.2\t-0.2\nC1\t1.1\t1\t0.1\t-0.1\nC2\t2.1'
+
+        analyses = parse_paired_periodic_multicharacteristic_measurements(
+            StringIO(system_a), StringIO(system_b)
+        )
+
+        self.assertEqual(list(analyses), ["C1", "C2"])
+        self.assertEqual(analyses["C1"]["system_a"], [1.1, 1.2])
+        self.assertEqual(analyses["C2"]["system_b"], [2.0, 2.1])
+        self.assertEqual(analyses["C2"]["paired_df"]["System_A_Source_Line"].tolist(), [2, 4])
+
+    def test_periodic_tabular_pairs_reject_incomplete_and_reordered_reports(self) -> None:
+        valid = 'C1\t1\nC2\t2\nC1\t3\nC2\t4'
+        incomplete = 'C1\t1\nC2\t2\nC1\t3'
+        reordered = 'C1\t1\nC2\t2\nC2\t4\nC1\t3'
+
+        with self.assertRaisesRegex(ValueError, "characteristic order"):
+            parse_paired_periodic_multicharacteristic_measurements(StringIO(incomplete), StringIO(valid))
+        with self.assertRaisesRegex(ValueError, "characteristic order"):
+            parse_paired_periodic_multicharacteristic_measurements(StringIO(valid), StringIO(reordered))
+
+    def test_paired_tabular_formats_ignore_optional_specifications(self) -> None:
+        reports_a = [['C1\t1.1\t1\t0.1\t-0.1', 'C2\t2.1'], ['C1\t1.2', 'C2\t2.2\t2\t0.2\t-0.2']]
+        reports_b = [['C1\t1.0', 'C2\t2.0\t2\t0.2\t-0.2'], ['C1\t1.1\t1\t0.1\t-0.1', 'C2\t2.1']]
+        expected = {"C1": ([1.1, 1.2], [1.0, 1.1]), "C2": ([2.1, 2.2], [2.0, 2.1])}
+        for mode, start, end in (("blocks", ":BEGIN", ":END"), ("custom", "REPORT", "REPORT"), ("periodic", "", "")):
+            with self.subTest(mode=mode):
+                def render(reports):
+                    return "\n".join("\n".join([start, *report, end]) for report in reports)
+
+                source_a = StringIO(render(reports_a))
+                source_b = StringIO(render(reports_b))
+                if mode == "blocks":
+                    analyses = parse_paired_multicharacteristic_measurements(source_a, source_b)
+                elif mode == "custom":
+                    analyses = parse_paired_custom_measurements(source_a, source_b, start, end)
+                else:
+                    analyses = parse_paired_periodic_multicharacteristic_measurements(source_a, source_b)
+                for characteristic, (values_a, values_b) in expected.items():
+                    self.assertEqual(analyses[characteristic]["system_a"], values_a)
+                    self.assertEqual(analyses[characteristic]["system_b"], values_b)
+
+    def test_periodic_tabular_pairs_reject_ambiguous_or_invalid_measurements(self) -> None:
+        valid = 'C1\t1\nC1\t2'
+        for invalid, message in (
+            ('1\t2\n1\t3', 'numeric characteristic labels are ambiguous'),
+            ('C1\tnan\nC1\t2', 'must be finite'),
+            ('C1\tbad\nC1\t2', 'invalid measurement'),
+            ('C1\t1\nC2\t2\nC1\t3\nC2\t4', 'same characteristic order'),
+        ):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, message):
+                parse_paired_periodic_multicharacteristic_measurements(StringIO(valid), StringIO(invalid))
+
+    def test_periodic_tabular_detection_skips_markers_and_metadata(self) -> None:
+        self.assertFalse(paired_input_has_periodic_tabular_rows(StringIO(':BEGIN\t"time"\nPATTERN: study\n1\n2')))
+        self.assertFalse(paired_input_has_periodic_tabular_rows(StringIO('1.0\t\n2.0\t')))
+        self.assertTrue(paired_input_has_periodic_tabular_rows(StringIO(':BEGIN\t"time"\nC1\t1\nC1\t2')))
+
     def test_custom_markers_parse_numeric_pairs_with_same_marker(self) -> None:
         system_a = StringIO("REPORT\n10.1\nREPORT\nREPORT\n10.2\nREPORT")
         system_b = StringIO("REPORT\n10.0\nREPORT\nREPORT\n10.4\nREPORT")

@@ -23,10 +23,12 @@ from app.support import (
     format_paired_preview,
     paired_data_quality_summary,
     paired_input_has_blocks,
+    paired_input_has_periodic_tabular_rows,
     paired_outliers_dataframe,
     parse_paired_custom_measurements,
     parse_paired_measurements,
     parse_paired_multicharacteristic_measurements,
+    parse_paired_periodic_multicharacteristic_measurements,
     parse_paired_unstructured_measurements,
     pd,
     st,
@@ -55,10 +57,10 @@ def render_paired_page() -> None:
         if input_mode == "Periodic reports without markers":
             st.caption(
                 "Upload one file per system. Text-only headers/footers and BEGIN/END "
-                "markers are ignored. Each measurement line must contain exactly one "
-                "finite number; lines with multiple numbers or unclassified text between "
-                "measurements are rejected. Values are paired by order, so both files "
-                "must contain the same observations in the same order."
+                "markers are ignored. Use one finite number per line or tab-separated "
+                "characteristic and measurement rows. Optional nominal and tolerance "
+                "columns are ignored. Both files must have matching observations and "
+                "characteristics in the same order."
             )
             input_mode_key = "unstructured"
         elif input_mode == "Customized":
@@ -81,7 +83,8 @@ def render_paired_page() -> None:
             st.caption(
                 "Upload one file per system. Use one finite number per line, or matching "
                 ":BEGIN/:END blocks with tab-separated characteristic and measurement "
-                "rows. Block labels must match; observations pair by block order."
+                "rows. Optional nominal and tolerance columns are ignored. "
+                "Observations pair by report order."
             )
             input_mode_key = "structured"
         left, right = st.columns(2)
@@ -107,6 +110,7 @@ def render_paired_page() -> None:
     try:
         with st.spinner("Processing paired T-Test data..."):
             selected_characteristic: str | None = None
+            analyses = None
             system_a_name = Path(file_a.name).stem if hasattr(file_a, "name") else "System A"
             system_b_name = Path(file_b.name).stem if hasattr(file_b, "name") else "System B"
             if "PAIRED DATA " in system_a_name:
@@ -124,16 +128,23 @@ def render_paired_page() -> None:
             elif input_mode == "Periodic reports without markers":
                 buffer_a = uploaded_to_textio(file_a)
                 buffer_b = uploaded_to_textio(file_b)
-                paired_df, system_a, system_b, differences = (
-                    parse_paired_unstructured_measurements(buffer_a, buffer_b)
-                )
-                metrics = calculate_paired_ttest_metrics(system_a, system_b)
-                diagnostics = calculate_paired_ttest_diagnostics(
-                    system_a,
-                    system_b,
-                    system_a_name=system_a_name,
-                    system_b_name=system_b_name,
-                )
+                tabular_a = paired_input_has_periodic_tabular_rows(buffer_a)
+                tabular_b = paired_input_has_periodic_tabular_rows(buffer_b)
+                if tabular_a != tabular_b:
+                    raise ValueError("Both systems must use the same paired input format.")
+                if tabular_a:
+                    analyses = parse_paired_periodic_multicharacteristic_measurements(buffer_a, buffer_b)
+                else:
+                    paired_df, system_a, system_b, differences = (
+                        parse_paired_unstructured_measurements(buffer_a, buffer_b)
+                    )
+                    metrics = calculate_paired_ttest_metrics(system_a, system_b)
+                    diagnostics = calculate_paired_ttest_diagnostics(
+                        system_a,
+                        system_b,
+                        system_a_name=system_a_name,
+                        system_b_name=system_b_name,
+                    )
             else:
                 has_blocks_a = paired_input_has_blocks(uploaded_to_textio(file_a))
                 has_blocks_b = paired_input_has_blocks(uploaded_to_textio(file_b))
@@ -145,11 +156,16 @@ def render_paired_page() -> None:
                         uploaded_to_textio(file_a), uploaded_to_textio(file_b)
                     )
                 else:
-                    analyses = None
+                    tabular_a = paired_input_has_periodic_tabular_rows(uploaded_to_textio(file_a))
+                    tabular_b = paired_input_has_periodic_tabular_rows(uploaded_to_textio(file_b))
+                    if tabular_a != tabular_b:
+                        raise ValueError("Both systems must use the same paired input format.")
+                    if tabular_a:
+                        analyses = parse_paired_periodic_multicharacteristic_measurements(
+                            uploaded_to_textio(file_a), uploaded_to_textio(file_b)
+                        )
 
-            if input_mode == "Customized" or (
-                input_mode != "Periodic reports without markers" and analyses is not None
-            ):
+            if analyses is not None:
                 for analysis in analyses.values():
                     analysis["metrics"] = calculate_paired_ttest_metrics(
                         analysis["system_a"], analysis["system_b"]
@@ -261,7 +277,7 @@ def render_paired_page() -> None:
         st.dataframe(paired_df.head(10), use_container_width=True, hide_index=True)
         if len(paired_df) > 10:
             st.caption(f"Showing the first 10 of {len(paired_df)} paired observations.")
-        if input_mode in {"Periodic reports without markers", "Customized"}:
+        if "System_A_Source_Line" in paired_df.columns:
             st.caption("Source line columns identify the original measurement row in each file.")
 
     with st.container():

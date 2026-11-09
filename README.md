@@ -111,7 +111,7 @@ msa paired [--system-a FILE] [--system-b FILE] [--output DIR]
 Los scripts Python descritos abajo se mantienen como entry points heredados.
 Comparten `src/gage_tracer/`; no mantienen una segunda implementación de las
 fórmulas.
-
+ 
 - `cli/Type_1_gage_handy_tool.py` ejecuta el flujo Type 1: lee `RAW DATA.txt`,
 	normaliza las mediciones, calcula cada dimensión y genera el resumen de texto
 	y el dashboard HTML.
@@ -205,7 +205,8 @@ distribution and assign each file to the corresponding part or operator. For
 
 Paired T additionally has `multicharacteristic_a.txt` and
 `multicharacteristic_b.txt` in the `blocks` and `custom` directories. Load one
-file per system; the periodic mode accepts a single numeric series per system.
+file per system. The periodic mode accepts a numeric series or tab-separated
+characteristic and measurement rows per system.
 The Type 1 examples contain 20 complete reports. These examples are derived
 from the existing sample files and can be regenerated with:
 
@@ -303,16 +304,19 @@ and System B must use the same labels in the same order. A leading UTF-8 BOM
 is accepted in numeric files. The bundled OGP pair has 10 blocks and 8
 characteristics per system, with matching tags and within-block order.
 
-In Streamlit, Paired T-Test also offers an **Unstructured report text** mode
-for two files that do not follow the numeric-only or complete block formats.
-Each measurement line in this mode must contain exactly one finite number;
-text-only headers/footers and `BEGIN`/`END` markers are ignored. Lines with
-multiple numbers, non-finite values, or unclassified text between measurements
-are rejected to avoid silently shifting pairs. Values pair by file order, and
-both files must yield the same number of measurements. This mode handles one
-measurement series per system; use the structured block format for
-multi-characteristic studies. The paired-observation preview includes each
-measurement's original line number in its source file.
+In Streamlit, **Periodic reports without markers** accepts either one finite
+measurement per line or tab-separated `<characteristic><TAB><measurement>`
+rows. A tabular row may also include nominal, upper tolerance and lower
+tolerance columns; these and other trailing columns are ignored and are not
+used to evaluate conformity. Every report must repeat the same characteristic
+labels in the same order, and both systems must have matching report counts
+and characteristic order. Repeating the first characteristic begins the next
+report. Numeric-only characteristic labels are rejected in this mode because
+they are ambiguous with multiple numeric measurements. Text-only headers and
+footers, `PATTERN:`, `DISPLAY:`, `UNIT:`, and `BEGIN`/`END` markers are
+ignored. Unclassified text between measurements and ambiguous or non-finite
+measurements are rejected. The paired-observation preview includes original
+source line numbers.
 
 The paired workflow also offers **Customized** separation for either one numeric
 measurement per report or tab-separated characteristic/measurement rows. Enter

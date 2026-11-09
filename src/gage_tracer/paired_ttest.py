@@ -311,6 +311,114 @@ def parse_paired_multicharacteristic_measurements(
     return analyses
 
 
+def paired_input_has_periodic_tabular_rows(input_file: _InputSource) -> bool:
+    """Detect tabular rows while excluding report markers and metadata."""
+    for raw_line in _read_text_lines(input_file):
+        line = raw_line.strip().lstrip("\ufeff")
+        marker_text = line.lstrip('"').strip().lstrip(":").strip()
+        if re.match(r"^(BEGIN|END)(?:\b|[\"\t\s])", marker_text, re.IGNORECASE):
+            continue
+        if line.strip('"').upper().startswith(("PATTERN:", "DISPLAY:", "UNIT:")):
+            continue
+        if "\t" in line:
+            return True
+    return False
+
+
+def _periodic_paired_blocks(
+    input_file: _InputSource,
+    system_name: str,
+) -> tuple[str, tuple[str, ...], dict[str, list[int]]]:
+    reports: list[list[str]] = []
+    current: list[str] = []
+    current_names: list[str] = []
+    expected_names: tuple[str, ...] | None = None
+    source_lines: dict[str, list[int]] = {}
+    unclassified_lines: list[int] = []
+    measurement_lines: list[int] = []
+
+    def finish_report() -> None:
+        nonlocal expected_names, current, current_names
+        names = tuple(current_names)
+        if expected_names is None:
+            expected_names = names
+        elif names != expected_names:
+            raise ValueError(f"{system_name} report {len(reports) + 1} has a different characteristic order.")
+        reports.append(current)
+        current = []
+        current_names = []
+
+    for line_number, raw_line in enumerate(_read_text_lines(input_file), start=1):
+        line = raw_line.strip().lstrip("\ufeff")
+        if not line:
+            continue
+        marker_text = line.lstrip('"').strip().lstrip(":").strip()
+        if re.match(r"^(BEGIN|END)(?:\b|[\"\t\s])", marker_text, re.IGNORECASE):
+            continue
+        if line.strip('"').upper().startswith(("PATTERN:", "DISPLAY:", "UNIT:")):
+            continue
+        fields = raw_line.split("\t")
+        if len(fields) < 2:
+            if re.search(r"\d|(?<!\w)[+-]?(?:nan|inf(?:inity)?)(?!\w)", line, re.IGNORECASE):
+                raise ValueError(f"{system_name} line {line_number}: expected a tab-separated characteristic and measurement.")
+            unclassified_lines.append(line_number)
+            continue
+        characteristic = fields[0].strip().strip('"')
+        measurement_text = fields[1].strip()
+        if characteristic.casefold() in {"characteristic", "dimension"} and measurement_text.casefold() in {"measurement", "value"}:
+            continue
+        if not characteristic:
+            raise ValueError(f"{system_name} line {line_number}: characteristic label cannot be empty.")
+        try:
+            float(characteristic)
+        except ValueError:
+            pass
+        else:
+            raise ValueError(f"{system_name} line {line_number}: numeric characteristic labels are ambiguous.")
+        try:
+            measurement = float(measurement_text)
+        except ValueError as exc:
+            raise ValueError(f"{system_name} line {line_number}: invalid measurement for {characteristic!r}.") from exc
+        if not math.isfinite(measurement):
+            raise ValueError(f"{system_name} line {line_number}: measurement must be finite.")
+
+        if current_names and characteristic == current_names[0]:
+            finish_report()
+        if characteristic in current_names:
+            raise ValueError(f"{system_name} line {line_number}: duplicate characteristic or different characteristic order.")
+        current_names.append(characteristic)
+        current.append(f"{fields[0]}\t{measurement_text}")
+        source_lines.setdefault(characteristic, []).append(line_number)
+        measurement_lines.append(line_number)
+
+    if current:
+        finish_report()
+    if len(reports) < 2 or expected_names is None:
+        raise ValueError(f"{system_name} requires at least two complete paired reports.")
+    if any(measurement_lines[0] < line_number < measurement_lines[-1] for line_number in unclassified_lines):
+        raise ValueError(f"{system_name} contains unclassified text between measurements.")
+    normalized = "\n".join(":BEGIN\n" + "\n".join(report) + "\n:END" for report in reports)
+    return normalized, expected_names, source_lines
+
+
+def parse_paired_periodic_multicharacteristic_measurements(
+    file_a: _InputSource,
+    file_b: _InputSource,
+) -> dict[str, dict[str, Any]]:
+    """Align tabular periodic reports without using optional specification columns."""
+    normalized_a, names_a, lines_a = _periodic_paired_blocks(file_a, "System A")
+    normalized_b, names_b, lines_b = _periodic_paired_blocks(file_b, "System B")
+    if names_a != names_b:
+        raise ValueError("Both systems must use the same characteristic order.")
+    analyses = parse_paired_multicharacteristic_measurements(
+        StringIO(normalized_a), StringIO(normalized_b)
+    )
+    for characteristic, analysis in analyses.items():
+        analysis["paired_df"]["System_A_Source_Line"] = lines_a[characteristic]
+        analysis["paired_df"]["System_B_Source_Line"] = lines_b[characteristic]
+    return analyses
+
+
 def _custom_numeric_blocks_have_tabular_rows(normalized_text: str) -> bool:
     in_block = False
     for line in normalized_text.splitlines():

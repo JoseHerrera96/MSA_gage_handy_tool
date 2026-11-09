@@ -129,3 +129,25 @@ class SyntheticFixtureTests(unittest.TestCase):
 
         self.assertEqual(parser.call_count, 1)
         self.assertEqual(parser.call_args.args[2:], ("REPORT", "REPORT"))
+
+    def test_paired_view_routes_periodic_tabular_rows_by_characteristic(self) -> None:
+        from app.views import paired_view
+
+        for mode in ("Periodic reports without markers", "BEGIN/END markers"):
+            with self.subTest(mode=mode):
+                streamlit = MagicMock()
+                streamlit.radio.return_value = mode
+                streamlit.columns.side_effect = lambda count: [MagicMock() for _ in range(count)]
+                file_a = MagicMock(name="system_a")
+                file_a.name = "system_a.txt"
+                file_a.getvalue.return_value = b"C1\t1.1\t1\t0.1\t-0.1\nC1\t1.2"
+                file_b = MagicMock(name="system_b")
+                file_b.name = "system_b.txt"
+                file_b.getvalue.return_value = b"C1\t1.0\nC1\t1.1\t1\t0.1\t-0.1"
+                streamlit.file_uploader.side_effect = [file_a, file_b]
+                with patch.object(paired_view, "st", streamlit), \
+                     patch.object(paired_view, "parse_paired_periodic_multicharacteristic_measurements", wraps=paired_view.parse_paired_periodic_multicharacteristic_measurements) as parser, \
+                     patch.object(paired_view, "calculate_paired_ttest_metrics", side_effect=ValueError("probe")), \
+                     patch.object(paired_view, "show_processing_error"):
+                    paired_view.render_paired_page()
+                self.assertEqual(parser.call_count, 1)
