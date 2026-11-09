@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from io import StringIO
+
 from app.components.alerts import show_processing_error
 from app.support import (
     TYPE1_CAPABILITY_THRESHOLD,
@@ -7,6 +9,7 @@ from app.support import (
     create_dashboard,
     format_type1_dataframe,
     metric_status,
+    normalize_custom_report_markers,
     pd,
     st,
     transform_raw_data,
@@ -21,23 +24,43 @@ def render_type1_page() -> None:
         st.info("Upload one text file containing repeated measurements of the same reference part.")
         input_format_label = st.radio(
             "How are the reports separated?",
-            options=("BEGIN/END markers", "Periodic reports without markers"),
+            options=(
+                "BEGIN/END markers",
+                "Periodic reports without markers",
+                "Customized",
+            ),
             horizontal=True,
             key="type1_input_format",
         )
-        input_format = "blocks" if input_format_label == "BEGIN/END markers" else "periodic"
+        input_format = {
+            "BEGIN/END markers": "blocks",
+            "Periodic reports without markers": "periodic",
+            "Customized": "custom",
+        }[input_format_label]
         if input_format == "blocks":
             st.caption(
                 "One file with complete BEGIN/END report blocks. Each report "
                 "must contain the same measurement characteristics."
             )
-        else:
+        elif input_format == "periodic":
             st.caption(
                 "One file with consecutive reports and no required BEGIN/END markers. "
                 "Measurement rows must be tab-separated as characteristic, measurement, "
                 "nominal, upper tolerance, lower tolerance. Headers and PATTERN/DISPLAY/UNIT "
                 "metadata may be present. Every report must repeat the same characteristics "
                 "in the same order; a repeated characteristic starts the next report."
+            )
+        else:
+            marker_cols = st.columns(2)
+            start_marker = marker_cols[0].text_input(
+                "Start marker", key="type1_custom_start_marker"
+            )
+            end_marker = marker_cols[1].text_input(
+                "End marker", key="type1_custom_end_marker"
+            )
+            st.caption(
+                "Markers must occupy their own line. Text outside report markers is ignored. "
+                "Enter the same marker in both fields when one marker separates reports."
             )
         uploaded = st.file_uploader(
             "Upload Type 1 data (.txt)",
@@ -53,9 +76,18 @@ def render_type1_page() -> None:
     try:
         with st.spinner("Processing Type 1 Gage Study data..."):
             buffer = uploaded_to_textio(uploaded)
-            df = transform_raw_data(
-                buffer, output_file=None, input_format=input_format
-            )
+            if input_format == "custom":
+                custom_text = normalize_custom_report_markers(
+                    buffer,
+                    start_marker,
+                    end_marker,
+                    source_name=uploaded.name,
+                )
+                buffer = StringIO(custom_text)
+                parser_format = "blocks"
+            else:
+                parser_format = input_format
+            df = transform_raw_data(buffer, output_file=None, input_format=parser_format)
             summary = build_type1_summary(df)
 
         if not summary:

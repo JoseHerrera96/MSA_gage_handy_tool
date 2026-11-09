@@ -111,7 +111,7 @@ msa paired [--system-a FILE] [--system-b FILE] [--output DIR]
 Los scripts Python descritos abajo se mantienen como entry points heredados.
 Comparten `src/gage_tracer/`; no mantienen una segunda implementación de las
 fórmulas.
-
+ 
 - `cli/Type_1_gage_handy_tool.py` ejecuta el flujo Type 1: lee `RAW DATA.txt`,
 	normaliza las mediciones, calcula cada dimensión y genera el resumen de texto
 	y el dashboard HTML.
@@ -182,6 +182,38 @@ The UI provides:
 - Live metric panels
 - Exportable HTML dashboards
 
+### Input Examples
+
+Ready-to-upload examples in `data/examples/input_modes/` use the same
+measurements across formats. Select the corresponding option in Streamlit:
+
+| Study | BEGIN/END markers | Periodic reports without markers | Customized |
+| --- | --- | --- | --- |
+| Type 1 | [blocks.txt](data/examples/input_modes/type1/blocks.txt) | [periodic.txt](data/examples/input_modes/type1/periodic.txt) | [custom.txt](data/examples/input_modes/type1/custom.txt) |
+| Gage R&R | [single.txt](data/examples/input_modes/gage_rr/blocks/single.txt) | [single.txt](data/examples/input_modes/gage_rr/periodic/single.txt) | [single.txt](data/examples/input_modes/gage_rr/custom/single.txt) |
+| Paired T | [System A](data/examples/input_modes/paired/blocks/system_a.txt), [System B](data/examples/input_modes/paired/blocks/system_b.txt) | [System A](data/examples/input_modes/paired/periodic/system_a.txt), [System B](data/examples/input_modes/paired/periodic/system_b.txt) | [System A](data/examples/input_modes/paired/custom/system_a.txt), [System B](data/examples/input_modes/paired/custom/system_b.txt) |
+
+For every **Customized** example, enter `REPORT` in both the Start marker and
+End marker fields. Each report is enclosed by a pair of `REPORT` lines.
+
+Gage R&R also provides `parts/part_01.txt` through `parts/part_10.txt` and
+`operators/operator_1.txt` through `operators/operator_3.txt` in each of the
+`blocks`, `periodic`, and `custom` directories. Select the matching upload
+distribution and assign each file to the corresponding part or operator. For
+`single.txt`, choose `Part → Operator → Trial`. All sets represent the same
+90-report study.
+
+Paired T additionally has `multicharacteristic_a.txt` and
+`multicharacteristic_b.txt` in the `blocks` and `custom` directories. Load one
+file per system. The periodic mode accepts a numeric series or tab-separated
+characteristic and measurement rows per system.
+The Type 1 examples contain 20 complete reports. These examples are derived
+from the existing sample files and can be regenerated with:
+
+```powershell
+python data/examples/generate_input_modes.py
+```
+
 ### CLI Workflows
 
 #### Type 1 Gage Study
@@ -192,7 +224,7 @@ output directories with:
 msa type1 --input data/private/type1-study.txt --output outputs/type1
 ```
 
-In Streamlit, the Type 1 workflow offers two input layouts. The existing layout
+In Streamlit, the Type 1 workflow offers three input layouts. The existing layout
 uses one file with complete `BEGIN`/`END` report blocks. The delimiter-free
 layout uses one file with consecutive reports and no required markers. Each
 measurement row must be tab-separated as
@@ -204,6 +236,13 @@ report. The app displays the number of complete cycles detected and rejects
 incomplete or inconsistent cycles. The bundled `data/examples/type1/RAW DATA.txt`
 contains 120 complete reports followed by a truncated report; the parser rejects
 that final incomplete report rather than silently dropping or completing it.
+
+The Type 1 workflow also offers **Customized** report separation. Enter start and
+end markers that each occupy their own line; matching is case-insensitive after
+trimming whitespace. Use the same marker in both fields when one delimiter
+alternates between opening and closing reports; it must occur an even number of
+times. Text outside marked reports is ignored, while malformed or incomplete
+reports inside markers are rejected.
 
 #### Paired T-Test
 For a paired comparison, specify both files:
@@ -235,7 +274,7 @@ Operator, and Trial labels. The default is `part-major`
 msa grr --input data/private/grr-study.txt --report-order operator-major --output outputs/gage_rr
 ```
 
-The Streamlit workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags.
+The Streamlit workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags. It also asks **How are the reports separated?** and offers **BEGIN/END markers**, **Periodic reports without markers**, or **Customized** for each upload distribution (one file, one per part, or one per operator). In periodic mode, rows retain the characteristic, measurement, nominal, upper-tolerance, and lower-tolerance columns; repeating the first characteristic begins the next report. Customized markers must each occupy their own line; use the same marker in both fields to alternate report boundaries. Text outside marked reports is ignored, and malformed or incomplete report blocks are rejected.
 
 Streamlit also supports grouped uploads while keeping the same crossed design:
 
@@ -265,16 +304,26 @@ and System B must use the same labels in the same order. A leading UTF-8 BOM
 is accepted in numeric files. The bundled OGP pair has 10 blocks and 8
 characteristics per system, with matching tags and within-block order.
 
-In Streamlit, Paired T-Test also offers an **Unstructured report text** mode
-for two files that do not follow the numeric-only or complete block formats.
-Each measurement line in this mode must contain exactly one finite number;
-text-only headers/footers and `BEGIN`/`END` markers are ignored. Lines with
-multiple numbers, non-finite values, or unclassified text between measurements
-are rejected to avoid silently shifting pairs. Values pair by file order, and
-both files must yield the same number of measurements. This mode handles one
-measurement series per system; use the structured block format for
-multi-characteristic studies. The paired-observation preview includes each
-measurement's original line number in its source file.
+In Streamlit, **Periodic reports without markers** accepts either one finite
+measurement per line or tab-separated `<characteristic><TAB><measurement>`
+rows. A tabular row may also include nominal, upper tolerance and lower
+tolerance columns; these and other trailing columns are ignored and are not
+used to evaluate conformity. Every report must repeat the same characteristic
+labels in the same order, and both systems must have matching report counts
+and characteristic order. Repeating the first characteristic begins the next
+report. Numeric-only characteristic labels are rejected in this mode because
+they are ambiguous with multiple numeric measurements. Text-only headers and
+footers, `PATTERN:`, `DISPLAY:`, `UNIT:`, and `BEGIN`/`END` markers are
+ignored. Unclassified text between measurements and ambiguous or non-finite
+measurements are rejected. The paired-observation preview includes original
+source line numbers.
+
+The paired workflow also offers **Customized** separation for either one numeric
+measurement per report or tab-separated characteristic/measurement rows. Enter
+whole-line start and end markers for both system files; the marker pairs and
+characteristic order must match. A single repeated delimiter can be entered in
+both fields and must occur an even number of times. Text outside marked reports
+is ignored; source line columns continue to refer to the original files.
 
 ## Notes
 

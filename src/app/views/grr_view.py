@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from io import StringIO
 from typing import Any
 
 from app.components.alerts import show_processing_error
@@ -14,6 +15,7 @@ from app.support import (
     create_gage_rr_html_dashboard,
     create_gage_rr_html_overview,
     create_gage_rr_html_zip,
+    normalize_custom_report_markers,
     st,
     transform_gage_rr_data,
     transform_gage_rr_grouped_data,
@@ -41,6 +43,45 @@ def render_gage_rr_page() -> None:
             horizontal=True,
             key="grr_input_mode",
         )
+        input_format_label = st.radio(
+            "How are the reports separated?",
+            options=(
+                "BEGIN/END markers",
+                "Periodic reports without markers",
+                "Customized",
+            ),
+            horizontal=True,
+            key="grr_input_format",
+        )
+        input_format = {
+            "BEGIN/END markers": "blocks",
+            "Periodic reports without markers": "continuous",
+            "Customized": "custom",
+        }[input_format_label]
+        if input_format == "blocks":
+            st.caption(
+                "Each report must have a complete BEGIN/END marker pair and the "
+                "same set of measurement characteristics."
+            )
+        elif input_format == "continuous":
+            st.caption(
+                "Reports must be consecutive and contain no BEGIN/END markers. "
+                "Measurement rows use characteristic, measurement, nominal, "
+                "upper tolerance, and lower tolerance columns; repeating the first "
+                "characteristic starts the next report."
+            )
+        else:
+            marker_cols = st.columns(2)
+            start_marker = marker_cols[0].text_input(
+                "Start marker", key="grr_custom_start_marker"
+            )
+            end_marker = marker_cols[1].text_input(
+                "End marker", key="grr_custom_end_marker"
+            )
+            st.caption(
+                "Markers must occupy their own line. Text outside report markers is ignored. "
+                "Enter the same marker in both fields when one marker separates reports."
+            )
         uploaded = None
         grouped_uploads: list[tuple[str, Any]] = []
         report_order = "part-major"
@@ -63,7 +104,9 @@ def render_gage_rr_page() -> None:
                 "part-major" if report_order_label.startswith("Part") else "operator-major"
             )
             uploaded = st.file_uploader(
-                "Upload GAGE RR DATA.txt", type=["txt"], key="grr_raw"
+                "Upload GAGE RR DATA.txt",
+                type=["txt"],
+                key=f"grr_raw_{input_format}",
             )
         elif input_mode == "10 files · one per part":
             st.caption(
@@ -74,7 +117,7 @@ def render_gage_rr_page() -> None:
                 part_file = st.file_uploader(
                     f"Part {part} · 9 reports",
                     type=["txt"],
-                    key=f"grr_part_file_{part}",
+                    key=f"grr_part_file_{input_format}_{part}",
                 )
                 grouped_uploads.append((f"Part {part}", part_file))
         else:
@@ -86,7 +129,7 @@ def render_gage_rr_page() -> None:
                 operator_file = st.file_uploader(
                     f"Operator {operator} · 30 reports",
                     type=["txt"],
-                    key=f"grr_operator_file_{operator}",
+                    key=f"grr_operator_file_{input_format}_{operator}",
                 )
                 grouped_uploads.append((f"Operator {operator}", operator_file))
 
@@ -117,24 +160,48 @@ def render_gage_rr_page() -> None:
         with st.spinner("Processing Gage R&R Crossed data..."):
             if uploaded is not None:
                 buffer = uploaded_to_textio(uploaded)
+                parser_format = input_format
+                if input_format == "custom":
+                    buffer = StringIO(
+                        normalize_custom_report_markers(
+                            buffer,
+                            start_marker,
+                            end_marker,
+                            source_name=uploaded.name,
+                        )
+                    )
+                    parser_format = "blocks"
                 df = transform_gage_rr_data(
                     buffer,
                     output_file=None,
-                    input_format="auto",
+                    input_format=parser_format,
                     report_order=report_order,
                 )
                 upload_ids = [str(getattr(uploaded, "file_id", uploaded.name))]
             else:
                 group_by = "part" if input_mode == "10 files · one per part" else "operator"
                 grouped_sources = [
-                    (f"{label} ({file.name})", uploaded_to_textio(file))
+                    (
+                        f"{label} ({file.name})",
+                        StringIO(
+                            normalize_custom_report_markers(
+                                uploaded_to_textio(file),
+                                start_marker,
+                                end_marker,
+                                source_name=file.name,
+                            )
+                        )
+                        if input_format == "custom"
+                        else uploaded_to_textio(file),
+                    )
                     for label, file in grouped_uploads
                     if file is not None
                 ]
+                parser_format = "blocks" if input_format == "custom" else input_format
                 df = transform_gage_rr_grouped_data(
                     grouped_sources,
                     group_by=group_by,
-                    input_format="auto",
+                    input_format=parser_format,
                 )
                 upload_ids = [
                     str(getattr(file, "file_id", file.name))
