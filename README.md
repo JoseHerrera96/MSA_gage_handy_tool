@@ -2,6 +2,26 @@
 
 Data Tracer delivers Measurement System Analysis (MSA) workflows for Type 1 Gage Study, Paired T-Test, and crossed Gage R&R ANOVA evaluations. Each workflow supports raw input, structured data, text reports, and self-contained HTML dashboards.
 
+[Download MSA Handy Tool for Windows x64 (v1.0.0-beta)](https://github.com/JoseHerrera96/MSA_gage_handy_tool/releases/download/v1.0.0-beta/MSA-Handy-Tool.zip)
+
+## Windows Portable App
+
+Download and extract the ZIP, then open `MSA-Handy-Tool.exe`. Keep the
+`_internal` folder alongside the executable. The beta targets Windows 10 and
+11 (64-bit) and has been tested on Windows 11. It requires a compatible browser,
+but does not require Python or an internet connection to run the study pages.
+
+The app starts a loopback-only server and opens an Edge or Chrome app window;
+if neither is available, it opens the default browser normally. To reopen the
+window or stop the server, right-click the MSA Handy Tool notification-area
+icon and choose **Abrir aplicacion** or **Cerrar servidor**. Closing the window
+alone does not stop the server.
+
+This is an unsigned experimental build, so Windows may display a security
+warning. The browser workflows do not yet match every Streamlit interaction,
+and validation with representative real inputs remains necessary. Stopping the
+server does not delete downloaded reports or securely erase browser memory.
+
 ## Repository Overview
 
 - `MSA_app.py` — Canonical Streamlit launcher for interactive MSA workflows.
@@ -15,16 +35,17 @@ Data Tracer delivers Measurement System Analysis (MSA) workflows for Type 1 Gage
 - `outputs/` — Ignored generated analysis files.
 - `tests/` — Validation tests for key analytical components.
 
-## Instalación y ejecución
+## Installation and CLI
 
-Instala el paquete en modo editable desde la raíz del repositorio:
+For source-based workflows, install the package in editable mode from the
+repository root. Python 3.10 or later is required.
 
 ```powershell
 python -m pip install -e .
 ```
 
-Inicia la interfaz Streamlit con `streamlit run MSA_app.py` o con el
-entry point instalado `msa-app`. La CLI unificada se instala como `msa`:
+Start the Streamlit interface with `streamlit run MSA_app.py` or the installed
+`msa-app` entry point. The unified `msa` CLI provides three workflows:
 
 ```powershell
 msa type1 --input data/private/type1-study.txt --output outputs/type1
@@ -39,75 +60,47 @@ uploads, but this cleanup can be delayed and is not secure memory erasure. It
 does not govern hosting-provider storage, logs, backups, or downloaded reports.
 CLI workflows write their results to disk.
 
-Los argumentos de entrada y salida son opcionales: por defecto se usan los
-ejemplos bajo `data/examples/` y las carpetas correspondientes bajo `outputs/`.
+Input and output arguments are optional; defaults use examples under
+`data/examples/` and the corresponding directories under `outputs/`.
 
-## Core del proyecto: `src`, `cli` y Streamlit
+## Architecture
 
-El proyecto separa la interfaz, las reglas de análisis y los puntos de entrada.
-La carpeta `src/gage_tracer/` contiene el núcleo reutilizable; `src/app/` y
-los scripts de `cli/` coordinan ese núcleo para la interfaz web o para la
-generación de archivos.
+The project separates its interfaces, analysis logic, and entry points.
+`src/gage_tracer/` contains the reusable core; `src/app/` and `cli/` coordinate
+the web interface and file-based workflows.
 
 ```mermaid
 flowchart LR
-		Browser[Usuario en navegador] --> Launcher[MSA_app.py]
+		Browser[Browser user] --> Launcher[MSA_app.py]
 		Launcher --> UI[src/app/main.py]
 		UI --> Domain[src/gage_tracer]
-		CLI[Scripts cli/] --> Domain
-		Domain --> Data[Datos normalizados]
-		Domain --> Reports[Informes TXT y dashboards HTML]
+		CLI[CLI scripts] --> Domain
+		Domain --> Data[Normalized data]
+		Domain --> Reports[Text reports and HTML dashboards]
 ```
 
-### Entrada de Streamlit
+### Application and analysis modules
 
-- `MSA_app.py` es el lanzador principal documentado. Importa `main`
-	desde `src/app`, por lo que funciona directamente desde un checkout del
-	repositorio sin requerir una instalación editable; no contiene cálculos
-	estadísticos ni define páginas.
-- `src/app/main.py` orquesta la navegación y las tres vistas. El paquete separa
-	`views/type1_view.py`, `views/paired_view.py` y `views/grr_view.py`; los
-	componentes compartidos están en `components/`.
-- `src/app/theme.py` inyecta los estilos definidos en `src/app/assets/styles.css`.
-	Las vistas delegan parsers y cálculos en `gage_tracer`.
-- `cli/app.py` inicia la misma aplicación Streamlit empaquetada. No es uno de
-	los tres CLI heredados que generan informes estadísticos.
+- `MSA_app.py` launches Streamlit and imports `main` from `src/app`.
+- `src/app/main.py` coordinates navigation and the three study views;
+  `components/`, `theme.py`, and `assets/styles.css` provide shared UI pieces.
+- `data_parser.py` parses and validates the input formats for each study.
+- `calculations.py` implements Type 1 and crossed Gage R&R calculations,
+  including bias, capability indices, variance components, and NDC.
+- `paired_ttest.py` aligns paired observations and computes tests, intervals,
+  diagnostics, and multi-characteristic results with Holm adjustment.
+- `visualization.py` and `paired_visualization.py` generate study dashboards.
+- `presentation.py` prepares tables, previews, and presentation states;
+  `study_config.py` holds shared study configuration and thresholds.
+- `cli/app.py` launches the packaged Streamlit application; `cli/command.py`
+  exposes the unified command-line interface.
 
-### Módulos de `src/gage_tracer/`
+The analysis flow is **raw input → parsing and validation → calculations →
+presentation or export**. The user interfaces delegate calculations to the core.
 
-- `data_parser.py` lee los formatos de entrada y los convierte en tablas
-	normalizadas. Contiene parsers distintos para Type 1, Gage R&R y los dos
-	formatos del Paired T-Test; valida bloques, etiquetas y mediciones antes de
-	que los análisis reciban los datos.
-- `calculations.py` contiene los cálculos de Type 1 y Gage R&R. Para Type 1
-	calcula métricas como bias, Cg y Cgk; para Gage R&R realiza el análisis ANOVA
-	cruzado, estima componentes de variación, aplica la regla de interacción y
-	obtiene métricas como porcentaje de Gage R&R y NDC.
-- `paired_ttest.py` implementa la comparación de dos sistemas: alinea las
-	observaciones, calcula la prueba t pareada y sus intervalos, genera
-	diagnósticos y prepara resultados de overview con ajuste de Holm cuando se
-	analizan varias características.
-- `paired_visualization.py` construye las figuras estadísticas del Paired
-	T-Test, incluidas las de resumen y diagnóstico.
-- `visualization.py` genera los dashboards de Type 1 y Gage R&R, las vistas de
-	overview y los paquetes HTML exportables.
-- `presentation.py` adapta resultados a tablas, previews y estados listos para
-	la interfaz. Mantiene ese formateo separado de los cálculos estadísticos.
-- `study_config.py` concentra las reglas compartidas del diseño y los
-	umbrales, como el diseño cruzado de 10 piezas, 3 operadores y 3 pruebas.
-- `__init__.py` publica una API común para las funciones principales del
-	paquete.
+### Command-line entry points
 
-En conjunto, el recorrido de un análisis es: **entrada sin procesar → parser y
-validación → cálculos → presentación o exportación**. Los parsers no deciden
-cómo se muestra el resultado, y la interfaz no vuelve a implementar las
-fórmulas.
-
-### Responsabilidad de `cli/`
-
-`msa` es la interfaz unificada de terminal. Los argumentos `--input`,
-`--system-a`, `--system-b` y `--output` aceptan rutas explícitas; si se omiten,
-se usan los ejemplos y directorios de salida del repositorio.
+The unified `msa` interface accepts explicit input and output paths:
 
 ```powershell
 msa type1 [--input FILE] [--output DIR]
@@ -115,27 +108,9 @@ msa grr [--input FILE] [--output DIR] [--report-order part-major|operator-major]
 msa paired [--system-a FILE] [--system-b FILE] [--output DIR]
 ```
 
-Los scripts Python descritos abajo se mantienen como entry points heredados.
-Comparten `src/gage_tracer/`; no mantienen una segunda implementación de las
-fórmulas.
- 
-- `cli/Type_1_gage_handy_tool.py` ejecuta el flujo Type 1: lee `RAW DATA.txt`,
-	normaliza las mediciones, calcula cada dimensión y genera el resumen de texto
-	y el dashboard HTML.
-- `cli/Paired_T_Test_tool.py` ejecuta la comparación Sistema A/Sistema B. Acepta
-	valores numéricos pareados o archivos con bloques de varias características;
-	produce los datos pareados, los informes y dashboards, y el overview/ZIP para
-	estudios multicaracterística.
-- `cli/Gage_RR_tool.py` analiza los bloques de Gage R&R cruzado, calcula un
-	análisis independiente por característica y genera sus informes y
-	dashboards. Permite seleccionar cómo interpretar el orden de los bloques no
-	etiquetados con `--report-order`.
-- `cli/app.py` inicia la aplicación Streamlit desde la carpeta `cli/`; para
-	abrir la interfaz, el punto de entrada principal es `MSA_app.py`.
-
-La CLI guarda los resultados bajo `outputs/`; los argumentos explícitos
-permiten escribir en otra carpeta. Streamlit procesa cargas en memoria y
-permite descargar los resultados desde el navegador.
+The legacy scripts in `cli/` remain available for the Type 1, Paired T, and
+Gage R&R workflows. They share the `src/gage_tracer/` implementation rather
+than maintaining separate statistical formulas.
 
 ## Repository Standard
 
@@ -171,7 +146,7 @@ production measurement data in version control.
 
 ### Interactive UI
 
-Launch the portfolio-grade Streamlit application:
+Launch the Streamlit application:
 
 ```bash
 streamlit run MSA_app.py
@@ -205,7 +180,10 @@ measurements across formats. Select the corresponding option in Streamlit:
 | --- | --- | --- | --- |
 | Type 1 | [blocks.txt](data/examples/input_modes/type1/blocks.txt) | [periodic.txt](data/examples/input_modes/type1/periodic.txt) | [custom.txt](data/examples/input_modes/type1/custom.txt) |
 | Gage R&R | [single.txt](data/examples/input_modes/gage_rr/blocks/single.txt) | [single.txt](data/examples/input_modes/gage_rr/periodic/single.txt) | [single.txt](data/examples/input_modes/gage_rr/custom/single.txt) |
-| Paired T | [System A](data/examples/input_modes/paired/blocks/system_a.txt), [System B](data/examples/input_modes/paired/blocks/system_b.txt) | [System A](data/examples/input_modes/paired/periodic/system_a.txt), [System B](data/examples/input_modes/paired/periodic/system_b.txt) | [System A](data/examples/input_modes/paired/custom/system_a.txt), [System B](data/examples/input_modes/paired/custom/system_b.txt) |
+
+Paired T examples are also available through **View example** in Streamlit.
+The generated Paired T input-mode files may be absent from a checkout; use the
+generator below if those local files are needed.
 
 For every **Customized** example, enter `REPORT` in both the Start marker and
 End marker fields. Each report is enclosed by a pair of `REPORT` lines.
@@ -287,25 +265,10 @@ deletion, or establish equivalence for every input. Python and browser runtimes
 use different library versions and can render charts or line endings differently.
 The server binds to localhost and exposes only allowlisted project source files.
 
-### Experimental Windows Executable
+### Building the Windows Distribution
 
-The portable Windows x64 build is `dist/MSA-Handy-Tool/MSA-Handy-Tool.exe`.
-It requires Windows 10 or later.
-Keep its `_internal` folder alongside the executable. Opening it starts a
-loopback-only server on an available port and opens an Edge or Chrome app
-window without the usual address bar. If neither is available, it opens the
-default browser normally. The
-application stays in the Windows notification area; look under the hidden icons
-arrow if necessary. Right-click its icon to choose **Abrir aplicacion** or
-**Cerrar servidor**. Closing the window does not stop the server. Stopping
-the server does not delete downloaded reports or securely erase browser memory.
-
-The bundle includes Pyodide and does not require Python or a network connection
-to run the study pages. A compatible installed browser is required. This is an
-unsigned experimental build; Windows may display a security warning. Before
-sharing or publishing it, review the third-party terms in
-`desktop/THIRD_PARTY_NOTICES.md` and the bundled package licenses. Full Streamlit
-parity and validation with representative real inputs are still pending.
+Before sharing or publishing a build, review the third-party terms in
+`desktop/THIRD_PARTY_NOTICES.md` and the bundled package licenses.
 
 To rebuild on Windows, install `pyinstaller==6.22.3` and `pystray==0.19.5` in the development
 environment and obtain the official Pyodide 0.27.7 core archive and the required
@@ -452,8 +415,8 @@ characteristic order must match. A single repeated delimiter can be entered in
 both fields and must occur an even number of times. Text outside marked reports
 is ignored; source line columns continue to refer to the original files.
 
-## Notes
+## License
 
-- This repo is intended for clean, production-like presentation.
-- Temporary debug files have been removed.
-- All documentation and artifacts are free of proprietary or corporate identifiers.
+The application is distributed under the [MIT License](LICENSE). See
+`desktop/THIRD_PARTY_NOTICES.md` and the bundled licenses for third-party terms.
+
