@@ -90,21 +90,17 @@ def _render_dimension_chart(
         figsize=(9, 7),
         gridspec_kw={"height_ratios": [1.1, 0.9]},
     )
-    fig.patch.set_facecolor("#FEFEFE")  # Match page background
+    fig.patch.set_facecolor("#171717")
 
-    # Chart palette — 3-color rule:
-    #   #FF6135 (brand orange) = highlight / attention data
-    #   #3A3A44 (dark gray) = primary data line
-    #   #B0B0BA (light gray) = context / grid / secondary info
-    CLR_DATA = "#3A3A44"       # Measurement line & dots
-    CLR_REF = "#1A8754"        # Reference line (green = good)
-    CLR_LIMIT = "#FF6135"      # Tolerance limits (brand orange = attention)
-    CLR_MEAN = "#FF420D"       # Mean line when offset from ref (accent orange)
-    CLR_GRID = "#E0E0E4"      # Grid lines — very light, non-competing
-    CLR_LABEL = "#5A5A66"      # Axis labels
-    CLR_TITLE = "#010101"      # Titles
-    CLR_SPINE = "#D1D1D6"      # Axis borders
-    CLR_CARD = "#FFFFFF"       # Plot area background
+    CLR_DATA = "#D8DEE9"
+    CLR_REF = "#39D98A"
+    CLR_LIMIT = "#FF8C00"
+    CLR_MEAN = "#FFB067"
+    CLR_GRID = "#454545"
+    CLR_LABEL = "#B8B8B8"
+    CLR_TITLE = "#F2F2F2"
+    CLR_SPINE = "#666666"
+    CLR_CARD = "#242424"
 
     ax1 = axes[0]
     x_vals = list(range(1, len(measurements) + 1))
@@ -156,7 +152,7 @@ def _render_dimension_chart(
 
     plt.tight_layout(pad=1.2)
     buf = BytesIO()
-    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight", facecolor="#FEFEFE")
+    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
     buf.seek(0)
     return base64.b64encode(buf.read()).decode("utf-8")
@@ -247,7 +243,7 @@ def _build_summary_rows(chart_images: list[dict[str, Any]]) -> str:
         vr = f"{d['var_repeat']:.1f}" if pd.notna(d["var_repeat"]) else "—"
         rows += (
             f'<tr class="summary-row" data-idx="{i}">\n'
-            f'  <td class="cell-dim">{d["dim"]}</td>\n'
+            f'  <td class="cell-dim">{escape(str(d["dim"]), quote=True)}</td>\n'
             f'  <td class="{st_cls}">{d["status"]}</td>\n'
             f'  <td class="{cg_cls}">{d["cg"]:.2f}</td>\n'
             f'  <td class="{cgk_cls}">{d["cgk"]:.2f}</td>\n'
@@ -290,7 +286,7 @@ def _build_detail_cards(chart_images: list[dict[str, Any]]) -> str:
         cards += f"""
 <div class="detail-card open" id="detail-{i}" style="border-left-color:{border};">
   <div class="detail-chart">
-    <img src="data:image/png;base64,{d['img']}" alt="Chart {d['dim']}">
+    <img src="data:image/png;base64,{d['img']}" alt="Chart {escape(str(d['dim']), quote=True)}">
   </div>
   <div class="detail-metrics">
     <div class="metric-group">
@@ -551,12 +547,12 @@ def create_dashboard(
   <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-brand-primary);">
     <div class="kpi-label">Best Cgk</div>
     <div class="kpi-value" style="color:var(--color-text-primary);">{best['Cgk']:.2f}</div>
-    <div class="kpi-sub">{best['Gage Item']}</div>
+    <div class="kpi-sub">{escape(str(best['Gage Item']), quote=True)}</div>
   </div>
   <div class="kpi-card kpi-secondary" style="border-left:3px solid var(--color-brand-accent);">
     <div class="kpi-label">Worst Cgk</div>
     <div class="kpi-value" style="color:var(--color-text-primary);">{worst['Cgk']:.2f}</div>
-    <div class="kpi-sub">{worst['Gage Item']}</div>
+    <div class="kpi-sub">{escape(str(worst['Gage Item']), quote=True)}</div>
   </div>
 </div>
 
@@ -699,7 +695,7 @@ def create_gage_rr_dashboard(
     ax1.set_title("Components of Variation", fontsize=10, fontweight="bold", color=CLR_TITLE)
     ax1.tick_params(labelsize=8, colors=CLR_LABEL)
     ax1.grid(True, alpha=0.3, color=CLR_GRID, axis="y")
-    ax1.legend(fontsize=7, loc="upper left", facecolor=CLR_CARD, edgecolor=CLR_SPINE)
+    ax1.legend(fontsize=7, loc="upper left", facecolor=CLR_CARD, edgecolor=CLR_SPINE, labelcolor=CLR_LABEL)
     for spine in ax1.spines.values():
         spine.set_color(CLR_SPINE)
 
@@ -926,9 +922,9 @@ def create_gage_rr_html_dashboard(
     from io import BytesIO
 
     # 1. Render 6-panel figure to Base64
-    fig = create_gage_rr_dashboard(df, results_dict)
+    fig = create_gage_rr_dashboard(df, results_dict, dark_mode=True)
     buf = BytesIO()
-    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight", facecolor="#FEFEFE")
+    fig.savefig(buf, format="png", dpi=140, bbox_inches="tight", facecolor=fig.get_facecolor())
     plt.close(fig)
     buf.seek(0)
     img_b64 = base64.b64encode(buf.read()).decode("utf-8")

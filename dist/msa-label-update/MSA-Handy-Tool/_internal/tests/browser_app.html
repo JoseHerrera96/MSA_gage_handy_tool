@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MSA Handy Tool</title>
+  <style>
+    body { margin: 0; background: #121212; color: #f9fafb; font-family: "Segoe UI", sans-serif; }
+    .app-header { background: #1e1e1e; border-bottom: 1px solid #3f3f46; padding: 18px 28px 0; }
+    .app-header strong { color: #f58220; font-size: 15px; }
+    .app-header span { color: #b7b7bf; font-size: 13px; margin-left: 12px; }
+    .study-navigation { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 16px; }
+    .study-navigation button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 10px 14px; background: transparent; color: #d3d3d8; cursor: pointer; font: inherit; font-size: 14px; font-weight: 600; }
+    .study-navigation button[aria-pressed="true"] { color: #fff; border-bottom-color: #f58220; }
+    .study-navigation button:disabled { opacity: .6; cursor: wait; }
+    .study-navigation button:focus-visible { outline: 2px solid #8ccbd3; outline-offset: -2px; }
+    #app-message { max-width: 1150px; margin: 24px auto; padding: 0 28px; color: #ffaaa5; }
+    @media (max-width: 620px) { .app-header { padding: 16px 16px 0; } .app-header span { display: block; margin: 4px 0 0; } .study-navigation button { padding: 10px; } #app-message { padding: 0 16px; } }
+  </style>
+  <style id="view-style"></style>
+</head>
+<body>
+  <header class="app-header">
+    <strong>MSA HANDY TOOL</strong><span>Measurement System Analysis</span>
+    <nav class="study-navigation" aria-label="Measurement study">
+      <button type="button" data-study="type1" aria-pressed="true">Type 1</button>
+      <button type="button" data-study="grr" aria-pressed="false">Gage R&amp;R</button>
+      <button type="button" data-study="paired" aria-pressed="false">Paired T</button>
+    </nav>
+  </header>
+  <p id="app-message" role="alert" hidden></p>
+  <div id="view"></div>
+  <script type="module" src="/browser-app.js"></script>
+</body>
+</html>
