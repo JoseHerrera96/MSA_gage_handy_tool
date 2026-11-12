@@ -1357,7 +1357,7 @@ def create_paired_ttest_dashboard(
 
     def encode_figure(figure: plt.Figure) -> str:
         buffer = BytesIO()
-        figure.savefig(buffer, format="png", dpi=150, bbox_inches="tight", facecolor="#FFFFFF")
+        figure.savefig(buffer, format="png", dpi=150, bbox_inches="tight", facecolor=figure.get_facecolor())
         plt.close(figure)
         return base64.b64encode(buffer.getvalue()).decode("utf-8")
 

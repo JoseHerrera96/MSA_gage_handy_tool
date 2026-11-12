@@ -1,4 +1,6 @@
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -6,6 +8,17 @@ from cli.command import main
 
 
 class UnifiedCommandTests(unittest.TestCase):
+    def test_streamlit_disconnected_session_retention(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [sys.executable, "-c", "from streamlit import config; config.get_config_options(); print(config.get_option('server.disconnectedSessionTTL'))"],
+            cwd=project_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.stdout.strip(), "30")
+
     def test_type1_arguments_are_forwarded(self) -> None:
         input_file = Path("measurements.txt")
         output_dir = Path("reports")

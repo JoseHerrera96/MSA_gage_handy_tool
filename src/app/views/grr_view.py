@@ -5,6 +5,7 @@ from typing import Any
 
 from app.components.alerts import show_processing_error
 from app.components.file_pills import render_file_pills
+from app.components.input_examples import render_input_examples
 from app.support import (
     GRR_DESIGN,
     GRR_MINIMUM_NDC,
@@ -85,6 +86,7 @@ def render_gage_rr_page() -> None:
         uploaded = None
         grouped_uploads: list[tuple[str, Any]] = []
         report_order = "part-major"
+        example_format = "periodic" if input_format == "continuous" else input_format
 
         if input_mode == "One file · 90 reports":
             st.caption(
@@ -103,6 +105,7 @@ def render_gage_rr_page() -> None:
             report_order = (
                 "part-major" if report_order_label.startswith("Part") else "operator-major"
             )
+            render_input_examples(st, "grr", example_format, "single", report_order)
             uploaded = st.file_uploader(
                 "Upload GAGE RR DATA.txt",
                 type=["txt"],
@@ -113,6 +116,7 @@ def render_gage_rr_page() -> None:
                 "Upload 10 files, one per part. Each file must contain 9 reports: "
                 "3 trials for Operator 1, then 3 for Operator 2, then 3 for Operator 3."
             )
+            render_input_examples(st, "grr", example_format, "parts")
             for part in range(1, GRR_DESIGN.parts + 1):
                 part_file = st.file_uploader(
                     f"Part {part} · 9 reports",
@@ -125,6 +129,7 @@ def render_gage_rr_page() -> None:
                 "Upload 3 files, one per operator. Each file must contain 30 reports: "
                 "3 trials for Part 1, then 3 for Part 2, continuing through Part 10."
             )
+            render_input_examples(st, "grr", example_format, "operators")
             for operator in range(1, GRR_DESIGN.operators + 1):
                 operator_file = st.file_uploader(
                     f"Operator {operator} · 30 reports",

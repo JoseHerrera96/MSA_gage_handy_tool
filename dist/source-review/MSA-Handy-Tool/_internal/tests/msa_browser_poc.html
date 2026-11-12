@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MSA | Browser prototype</title>
+  <style>
+    :root { color-scheme: dark; font-family: "Segoe UI", sans-serif; background: #121212; color: #f9fafb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    header { background: #1e1e1e; border-bottom: 1px solid #3f3f46; padding: 18px 28px; }
+    header strong { color: #f58220; font-size: 15px; }
+    header span { color: #b7b7bf; font-size: 13px; margin-left: 12px; }
+    main { max-width: 1150px; margin: auto; padding: 30px 28px 60px; }
+    h1 { font-size: 27px; margin: 0 0 8px; }
+    h2 { font-size: 18px; margin: 0 0 18px; }
+    h3 { font-size: 15px; margin: 24px 0 10px; }
+    p { line-height: 1.5; }
+    .subtitle, .hint { color: #b7b7bf; font-size: 14px; }
+    .subtitle { margin: 0 0 26px; }
+    section { border-top: 1px solid #3f3f46; padding: 24px 0; }
+    fieldset { border: 0; margin: 0 0 20px; padding: 0; }
+    legend, label { font-size: 14px; font-weight: 600; }
+    legend { margin-bottom: 12px; }
+    .modes, .actions { display: flex; flex-wrap: wrap; gap: 12px 22px; }
+    .modes label { font-weight: 400; display: flex; align-items: center; gap: 8px; }
+    input[type="radio"] { accent-color: #f58220; width: 16px; height: 16px; }
+    .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-width: 800px; margin: 16px 0; }
+    .fields label, .select-label { display: grid; gap: 8px; min-width: 0; }
+    input[type="text"], input[type="file"], select { color: #f9fafb; background: #242424; border: 1px solid #54545d; border-radius: 4px; padding: 10px; width: 100%; font: inherit; }
+    input[type="file"]::file-selector-button { background: #3a3a3a; color: #fff; border: 0; border-radius: 3px; padding: 7px 10px; margin-right: 12px; }
+    select { max-width: 440px; }
+    button { font: inherit; font-size: 14px; font-weight: 600; border-radius: 4px; padding: 10px 15px; cursor: pointer; border: 1px solid #f58220; background: #f58220; color: #17120d; }
+    button.secondary { background: transparent; color: #f9fafb; border: 1px solid #66666f; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #8ccbd3; outline-offset: 3px; }
+    .actions { gap: 10px; margin-top: 20px; }
+    #status { min-height: 22px; color: #b7b7bf; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    #status.error { color: #ffaaa5; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+    .metric { border-left: 2px solid #f58220; padding-left: 14px; min-width: 0; }
+    .metric dt { color: #b7b7bf; font-size: 13px; }
+    .metric dd { margin: 7px 0 0; font-size: 20px; font-weight: 600; overflow-wrap: anywhere; }
+    .notice { border-left: 3px solid #7ac5aa; background: #1a2e28; padding: 11px 14px; font-size: 14px; }
+    .table-wrap { overflow-x: auto; }
+    .chart-preview { display: grid; gap: 20px; margin-top: 20px; }
+    .chart-preview figure { margin: 0; }
+    .chart-preview figcaption { color: #b7b7bf; font-size: 13px; margin-bottom: 8px; }
+    .chart-preview img { display: block; width: 100%; height: auto; }
+    .report-tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 20px; border-bottom: 1px solid #54545d; }
+    .report-tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: #b7b7bf; }
+    .report-tabs button[aria-pressed="true"] { border-bottom-color: #f58220; color: #f9fafb; }
+    .report-panel { overflow-x: auto; margin-top: 20px; }
+    .report-panel img { display: block; width: 100%; height: auto; margin: 16px 0; }
+    .report-panel h1 { font-size: 20px; }
+    .report-panel table { margin: 12px 0 24px; }
+    .report-panel article { margin: 16px 0; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; white-space: nowrap; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #3f3f46; text-align: left; }
+    th { color: #b7b7bf; font-weight: 600; }
+    [hidden] { display: none !important; }
+    @media (max-width: 620px) { header { padding: 16px; } main { padding: 24px 16px 40px; } .metrics, .fields { grid-template-columns: repeat(2, minmax(0, 1fr)); } #files { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header><strong>MSA HANDY TOOL</strong><span>Experimental browser workflow</span></header>
+  <main>
+    <h1 id="title"></h1><p class="subtitle">Local browser processing | Experimental</p>
+    <section aria-labelledby="input-heading">
+      <h2 id="input-heading">Input data</h2>
+      <label id="distribution-label" class="select-label" hidden>Report distribution
+        <select id="distribution"><option value="single">One file | 90 reports</option><option value="parts">10 files | one per part</option><option value="operators">3 files | one per operator</option></select>
+      </label>
+      <label id="order-label" class="select-label" hidden>Untagged report sequence
+        <select id="order"><option value="part-major">Part / Operator / Trial</option><option value="operator-major">Operator / Part / Trial</option></select>
+      </label>
+      <fieldset><legend>How are the reports separated?</legend><div class="modes">
+        <label><input type="radio" name="format" value="blocks" checked> BEGIN/END markers</label>
+        <label><input type="radio" name="format" value="periodic"> Periodic reports without markers</label>
+        <label><input type="radio" name="format" value="custom"> Customized</label>
+      </div></fieldset>
+      <div id="markers" class="fields" hidden>
+        <label>Start marker <input id="start-marker" type="text" autocomplete="off"></label>
+        <label>End marker <input id="end-marker" type="text" autocomplete="off"></label>
+      </div>
+      <div id="files" class="fields"></div>
+      <div class="actions"><button id="analyze" type="button" disabled>Analyze</button><button id="example" class="secondary" type="button" disabled>Download example</button></div>
+      <p id="status" role="status" aria-live="polite">Loading Python and scientific packages...</p>
+    </section>
+    <div id="results" hidden>
+      <section><h2>Results</h2><label class="select-label">Report <select id="report"></select></label><p id="context" class="hint"></p><dl id="metrics" class="metrics"></dl><p id="notice" class="notice" hidden></p><div id="tables"></div><div id="charts"></div></section>
+      <section><h2>Export</h2><div id="exports" class="actions"></div></section>
+    </div>
+  </main>
+  <script type="module" src="/msa.js"></script>
+</body>
+</html>
