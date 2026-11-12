@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.components.alerts import show_processing_error
+from app.components.input_examples import render_input_examples
 from app.support import (
     build_minitab_summary_comments,
     build_paired_ttest_overview_dataframe,
@@ -87,6 +88,8 @@ def render_paired_page() -> None:
                 "Observations pair by report order."
             )
             input_mode_key = "structured"
+        example_format = {"structured": "blocks", "unstructured": "periodic", "customized": "custom"}[input_mode_key]
+        render_input_examples(st, "paired", example_format)
         left, right = st.columns(2)
         with left:
             file_a = st.file_uploader(

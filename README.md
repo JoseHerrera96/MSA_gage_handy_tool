@@ -32,6 +32,13 @@ msa grr --input data/private/grr-study.txt --report-order operator-major --outpu
 msa paired --system-a data/private/system-a.txt --system-b data/private/system-b.txt --output outputs/paired
 ```
 
+Streamlit processes uploaded files in memory. Active sessions retain their inputs
+for analysis; after a browser disconnects, the configured reconnection window is
+30 seconds. Streamlit subsequently cleans up disconnected sessions and their
+uploads, but this cleanup can be delayed and is not secure memory erasure. It
+does not govern hosting-provider storage, logs, backups, or downloaded reports.
+CLI workflows write their results to disk.
+
 Los argumentos de entrada y salida son opcionales: por defecto se usan los
 ejemplos bajo `data/examples/` y las carpetas correspondientes bajo `outputs/`.
 
@@ -184,6 +191,13 @@ The UI provides:
 
 ### Input Examples
 
+In Streamlit, **View example** shows a synthetic example for the selected study
+and report format. Download the selected text file or, for Paired T and grouped
+Gage R&R, the complete ZIP. Gage R&R examples match the selected file distribution
+and, for a single file, the selected report sequence. The preview shows the first
+24 lines; the download contains the complete data. For customized examples,
+enter `REPORT` in both marker fields.
+
 Ready-to-upload examples in `data/examples/input_modes/` use the same
 measurements across formats. Select the corresponding option in Streamlit:
 
@@ -213,6 +227,113 @@ from the existing sample files and can be regenerated with:
 ```powershell
 python data/examples/generate_input_modes.py
 ```
+
+### Browser Processing Proof
+
+Start the experimental local server with `python tests/browser_poc_server.py`:
+
+- `http://127.0.0.1:8765/app`: unified navigation for all three studies, using
+	one Pyodide instance while the page remains open.
+- `http://127.0.0.1:8765/type1`: Type 1 with normalized data and HTML downloads.
+- `http://127.0.0.1:8765/grr`: Gage R&R with single or grouped inputs and HTML/ZIP reports.
+- `http://127.0.0.1:8765/paired`: Paired T with two inputs and HTML/ZIP reports.
+- `http://127.0.0.1:8765/`: the original synthetic comparison proof.
+
+Each study supports the three report formats and provides synthetic examples;
+use `REPORT` in both custom marker fields for those examples. Switching studies
+asks before clearing selected inputs and results. In characteristic views, Gage
+R&R can show its report chart and normalized observations, while Paired T can
+show its summary, diagnostics and report card inline on demand. Complete HTML
+dashboards remain available as downloads. The browser views do not reproduce
+every Streamlit interaction. These prototypes do not replace the production UI.
+
+By default the pages load Pyodide 0.27.7 from jsDelivr, which can observe the
+connection and IP address. To serve the three study pages locally, obtain the
+[official Pyodide 0.27.7 full distribution](https://github.com/pyodide/pyodide/releases/tag/0.27.7),
+verify the archive checksum published there, extract it outside the repository,
+and point the server to the extracted directory containing `pyodide-lock.json`:
+
+```powershell
+python tests/browser_poc_server.py --pyodide-dir "C:\path\to\pyodide"
+```
+
+The server checks required package files against the supplied lock file, but
+does not independently authenticate the lock or Pyodide core files. Obtain them
+from a trusted source. The original `/` proof still uses jsDelivr even with a
+local runtime; local-only mode applies to `/app`, `/type1`, `/grr`, and `/paired`.
+
+To run the optional browser comparison tests, install Playwright in the local
+development environment (`python -m pip install playwright`), then run:
+
+```powershell
+python tests/browser_type1_check.py --pyodide-dir "C:\path\to\pyodide" --include-other-studies
+```
+
+On Windows this uses installed Chrome and Edge by default; `--browser PATH` can
+be repeated to choose executables. To compare a Type 1 file selected by you,
+add `--input PATH --format blocks`, or choose `periodic` or `custom`; custom
+inputs also need `--start-marker` and `--end-marker`. Without `--input`, tests
+use synthetic data. They compare numerical results with absolute tolerance
+`1e-8` and relative tolerance `1e-6`, verify actual downloads, and block
+non-local page requests. `--include-other-studies` also checks unified
+navigation, one-time runtime loading, result cleanup, and chart previews.
+Downloaded test files are deleted afterward, without a secure-erasure guarantee.
+
+The study pages read selected files and run calculations in browser memory; they
+are not designed to send filenames or measurements to the server. In local-mode
+synthetic tests, page requests were limited to allowlisted localhost assets.
+This does not protect against a compromised browser or runtime, guarantee secure
+deletion, or establish equivalence for every input. Python and browser runtimes
+use different library versions and can render charts or line endings differently.
+The server binds to localhost and exposes only allowlisted project source files.
+
+### Experimental Windows Executable
+
+The portable Windows x64 build is `dist/MSA-Handy-Tool/MSA-Handy-Tool.exe`.
+Keep its `_internal` folder alongside the executable. Opening it starts a
+loopback-only server on an available port and opens the default browser. The
+application stays in the Windows notification area; look under the hidden icons
+arrow if necessary. Right-click its icon to choose **Abrir aplicacion** or
+**Cerrar servidor**. Closing the browser tab does not stop the server. Stopping
+the server does not delete downloaded reports or securely erase browser memory.
+
+The bundle includes Pyodide and does not require Python or a network connection
+to run the study pages. A compatible installed browser is required. This is an
+unsigned experimental build; Windows may display a security warning. Before
+sharing or publishing it, review the third-party terms in
+`desktop/THIRD_PARTY_NOTICES.md` and the bundled package licenses. Full Streamlit
+parity and validation with representative real inputs are still pending.
+
+To rebuild on Windows, install `pyinstaller==6.22.3` and `pystray==0.19.5` in the development
+environment and obtain the official Pyodide 0.27.7 core archive and the required
+scientific packages from the [release](https://github.com/pyodide/pyodide/releases/tag/0.27.7).
+Then run:
+
+```powershell
+python desktop/build.py --core-archive "C:\path\to\pyodide-core-0.27.7.tar.bz2" --packages-dir "C:\path\to\pyodide-packages"
+```
+
+The build checks the official core archive's SHA-256 and checks each required
+package against the lock file from that archive. It refuses to overwrite an
+existing `dist/MSA-Handy-Tool`; choose a different `--output` directory for
+another build. To test the packaged executable locally with synthetic data,
+install the optional Playwright development package and run:
+
+```powershell
+python tests/check_desktop_executable.py dist/MSA-Handy-Tool/MSA-Handy-Tool.exe
+```
+
+Add `--verify-tray-source` to test loading a modified copy of the bundled
+pystray source. This test makes changes only to a temporary copy of the bundle.
+The build includes notices and a version manifest under `_internal`, but a
+complete licensing review remains necessary before redistribution.
+The exact desktop and browser source used for the build is included in
+`_internal/source/application-source.zip`; it is not the full repository.
+
+The full unittest suite currently reports a missing Paired T example file in
+`test_paired_input_mode_examples_are_equivalent`; the desktop and browser
+synthetic checks do not require that file. No real measurement files are used
+by those checks.
 
 ### CLI Workflows
 

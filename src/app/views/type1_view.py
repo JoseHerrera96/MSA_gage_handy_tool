@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import StringIO
 
 from app.components.alerts import show_processing_error
+from app.components.input_examples import render_input_examples
 from app.support import (
     TYPE1_CAPABILITY_THRESHOLD,
     build_type1_summary,
@@ -62,6 +63,7 @@ def render_type1_page() -> None:
                 "Markers must occupy their own line. Text outside report markers is ignored. "
                 "Enter the same marker in both fields when one marker separates reports."
             )
+        render_input_examples(st, "type1", input_format)
         uploaded = st.file_uploader(
             "Upload Type 1 data (.txt)",
             type=["txt"],
