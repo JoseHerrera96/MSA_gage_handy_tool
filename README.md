@@ -290,11 +290,14 @@ The server binds to localhost and exposes only allowlisted project source files.
 ### Experimental Windows Executable
 
 The portable Windows x64 build is `dist/MSA-Handy-Tool/MSA-Handy-Tool.exe`.
+It requires Windows 10 or later.
 Keep its `_internal` folder alongside the executable. Opening it starts a
-loopback-only server on an available port and opens the default browser. The
+loopback-only server on an available port and opens an Edge or Chrome app
+window without the usual address bar. If neither is available, it opens the
+default browser normally. The
 application stays in the Windows notification area; look under the hidden icons
 arrow if necessary. Right-click its icon to choose **Abrir aplicacion** or
-**Cerrar servidor**. Closing the browser tab does not stop the server. Stopping
+**Cerrar servidor**. Closing the window does not stop the server. Stopping
 the server does not delete downloaded reports or securely erase browser memory.
 
 The bundle includes Pyodide and does not require Python or a network connection
@@ -307,14 +310,17 @@ parity and validation with representative real inputs are still pending.
 To rebuild on Windows, install `pyinstaller==6.22.3` and `pystray==0.19.5` in the development
 environment and obtain the official Pyodide 0.27.7 core archive and the required
 scientific packages from the [release](https://github.com/pyodide/pyodide/releases/tag/0.27.7).
-Then run:
+To use the system UCRT included in Windows 10 and later, run:
 
 ```powershell
-python desktop/build.py --core-archive "C:\path\to\pyodide-core-0.27.7.tar.bz2" --packages-dir "C:\path\to\pyodide-packages"
+python desktop/build.py --core-archive "C:\path\to\pyodide-core-0.27.7.tar.bz2" --packages-dir "C:\path\to\pyodide-packages" --system-ucrt
 ```
 
-The build checks the official core archive's SHA-256 and checks each required
-package against the lock file from that archive. It refuses to overwrite an
+The build checks the official core archive's SHA-256, checks each required
+package against the lock file from that archive, and verifies the Visual C++
+runtime DLLs against the official redistributable. An alternative SDK-based
+build accepts `--ucrt-dir` and `--sdk-license`; see the third-party notices for
+its conditions. It refuses to overwrite an
 existing `dist/MSA-Handy-Tool`; choose a different `--output` directory for
 another build. To test the packaged executable locally with synthetic data,
 install the optional Playwright development package and run:

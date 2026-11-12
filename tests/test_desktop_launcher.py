@@ -1,4 +1,5 @@
 import http.client
+import hashlib
 from pathlib import Path
 import sys
 import tempfile
@@ -37,7 +38,7 @@ class DesktopServerTests(unittest.TestCase):
         tray.Icon.return_value = icon
         tray.Menu.side_effect = lambda *items: items
         tray.MenuItem.side_effect = lambda text, action, **kwargs: (text, action)
-        with patch.dict(sys.modules, {"pystray": tray}), patch.object(launcher, "start_server", return_value=server), patch.object(launcher.webbrowser, "open", return_value=True) as browser:
+        with patch.dict(sys.modules, {"pystray": tray}), patch.object(launcher, "start_server", return_value=server), patch.object(launcher, "open_app_window", return_value=True) as browser:
             def run(setup):
                 setup(icon)
                 items = tray.Icon.call_args.kwargs["menu"]
@@ -52,6 +53,19 @@ class DesktopServerTests(unittest.TestCase):
         icon.stop.assert_called_once()
         server.shutdown.assert_called_once()
         server.server_close.assert_called_once()
+
+    def test_app_window_uses_registered_browser_and_falls_back(self):
+        import launcher
+
+        url = "http://127.0.0.1:12345/app"
+        with patch.object(launcher, "app_browsers", return_value=[Path("edge.exe"), Path("chrome.exe")]), patch.object(launcher.subprocess, "Popen", side_effect=[OSError("unavailable"), None]) as run, patch.object(launcher.webbrowser, "open") as fallback:
+            self.assertTrue(launcher.open_app_window(url))
+            self.assertEqual(run.call_args_list[0].args[0], ["edge.exe", f"--app={url}"])
+            self.assertEqual(run.call_args_list[1].args[0], ["chrome.exe", f"--app={url}"])
+            fallback.assert_not_called()
+        with patch.object(launcher, "app_browsers", return_value=[]), patch.object(launcher.webbrowser, "open", return_value=True) as fallback:
+            self.assertTrue(launcher.open_app_window(url))
+            fallback.assert_called_once_with(url)
 
     def test_tray_failure_stops_server(self):
         from unittest.mock import MagicMock
@@ -77,12 +91,85 @@ class DesktopServerTests(unittest.TestCase):
             self.assertFalse((directory / "runtime").exists())
             (directory / "MSA-Handy-Tool").mkdir()
             with self.assertRaises(FileExistsError):
-                build(archive, directory, directory)
+                build(archive, directory, directory, directory, directory)
+
+    def test_build_replaces_bundled_ucrt_and_rejects_missing_sdk_files(self):
+        import build as desktop_build
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            bundle = directory / "bundle"
+            sdk = directory / "sdk"
+            bundle.mkdir()
+            sdk.mkdir()
+            for name in ("api-ms-win-core-file-l1-1-0.dll", "ucrtbase.dll"):
+                (bundle / name).write_bytes(b"toolkit")
+                (sdk / name).write_bytes(b"redistributable")
+            (bundle / "unrelated.dll").write_bytes(b"untouched")
+            digest = hashlib.sha256(b"redistributable").hexdigest()
+            manifest = hashlib.sha256("".join(f"{name}:{digest}\n" for name in ("api-ms-win-core-file-l1-1-0.dll", "ucrtbase.dll")).encode("ascii")).hexdigest()
+            with patch.object(desktop_build, "UCRT_MANIFEST_SHA256", manifest):
+                desktop_build.replace_ucrt_dlls(bundle, sdk)
+                self.assertEqual((bundle / "ucrtbase.dll").read_bytes(), b"redistributable")
+                self.assertEqual((bundle / "api-ms-win-core-file-l1-1-0.dll").read_bytes(), b"redistributable")
+                self.assertEqual((bundle / "unrelated.dll").read_bytes(), b"untouched")
+                (sdk / "ucrtbase.dll").write_bytes(b"modified")
+                with self.assertRaisesRegex(ValueError, "do not match"):
+                    desktop_build.replace_ucrt_dlls(bundle, sdk)
+                self.assertEqual((bundle / "ucrtbase.dll").read_bytes(), b"redistributable")
+                (sdk / "ucrtbase.dll").unlink()
+                with self.assertRaises(FileNotFoundError):
+                    desktop_build.replace_ucrt_dlls(bundle, sdk)
+
+    def test_build_removes_only_local_ucrt_files(self):
+        import build as desktop_build
+
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary)
+            for name in ("api-ms-win-core-file-l1-1-0.dll", "ucrtbase.dll", "VCRUNTIME140.dll"):
+                (bundle / name).write_bytes(b"library")
+            desktop_build.remove_local_ucrt(bundle)
+            self.assertFalse((bundle / "api-ms-win-core-file-l1-1-0.dll").exists())
+            self.assertFalse((bundle / "ucrtbase.dll").exists())
+            self.assertTrue((bundle / "VCRUNTIME140.dll").is_file())
+            with self.assertRaises(FileNotFoundError):
+                desktop_build.remove_local_ucrt(bundle / "missing")
+
+    def test_build_includes_only_verified_sdk_license(self):
+        import build as desktop_build
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            license_file = directory / "license.rtf"
+            license_file.write_bytes(b"license")
+            with patch.object(desktop_build, "SDK_LICENSE_SHA256", hashlib.sha256(b"license").hexdigest()):
+                desktop_build.stage_sdk_license(license_file, directory)
+                self.assertEqual((directory / "WINDOWS-SDK.rtf").read_bytes(), b"license")
+                license_file.write_bytes(b"modified")
+                with self.assertRaisesRegex(ValueError, "does not match"):
+                    desktop_build.stage_sdk_license(license_file, directory)
+
+    def test_build_verifies_visual_cpp_runtime(self):
+        import build as desktop_build
+
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary)
+            library = bundle / "VCRUNTIME140.dll"
+            library.write_bytes(b"official runtime")
+            hashes = {library.name: hashlib.sha256(b"official runtime").hexdigest()}
+            with patch.object(desktop_build, "VCRUNTIME_SHA256", hashes):
+                desktop_build.verify_vcruntime(bundle)
+                library.write_bytes(b"modified")
+                with self.assertRaisesRegex(ValueError, "does not match"):
+                    desktop_build.verify_vcruntime(bundle)
+                library.unlink()
+                with self.assertRaises(FileNotFoundError):
+                    desktop_build.verify_vcruntime(bundle)
 
     def test_build_uses_source_collection_hook(self):
         import build as desktop_build
 
-        with tempfile.TemporaryDirectory() as temporary, patch.object(desktop_build, "stage_runtime"), patch.object(desktop_build, "stage_licenses"), patch.object(desktop_build.subprocess, "run") as run:
+        with tempfile.TemporaryDirectory() as temporary, patch.object(desktop_build, "stage_runtime"), patch.object(desktop_build, "stage_licenses"), patch.object(desktop_build, "verify_vcruntime"), patch.object(desktop_build, "replace_ucrt_dlls") as replace_ucrt, patch.object(desktop_build.subprocess, "run") as run:
             def check_build(command, **kwargs):
                 hook_directory = Path(command[command.index("--additional-hooks-dir") + 1])
                 self.assertEqual((hook_directory / "hook-pystray.py").read_text().strip(), 'module_collection_mode = "py"')
@@ -90,10 +177,24 @@ class DesktopServerTests(unittest.TestCase):
                 self.assertTrue(Path(source_argument.split(";", 1)[0]).is_file())
 
             run.side_effect = check_build
-            build(Path("core.tar.bz2"), Path("packages"), Path(temporary))
+            build(Path("core.tar.bz2"), Path("packages"), Path(temporary), Path("sdk"), Path("sdk-license"))
             command = run.call_args.args[0]
             self.assertIn("pystray", command)
             self.assertIn("six", command)
+            replace_ucrt.assert_called_once_with(Path(temporary).resolve() / "MSA-Handy-Tool" / "_internal", Path("sdk"))
+
+    def test_build_system_ucrt_mode_and_invalid_options(self):
+        import build as desktop_build
+
+        with tempfile.TemporaryDirectory() as temporary, patch.object(desktop_build, "stage_runtime"), patch.object(desktop_build, "stage_licenses") as stage_licenses, patch.object(desktop_build, "verify_vcruntime"), patch.object(desktop_build, "remove_local_ucrt") as remove_ucrt, patch.object(desktop_build.subprocess, "run"):
+            directory = Path(temporary)
+            build(Path("core.tar.bz2"), Path("packages"), directory, None, None, system_ucrt=True)
+            remove_ucrt.assert_called_once_with(directory.resolve() / "MSA-Handy-Tool" / "_internal")
+            self.assertIsNone(stage_licenses.call_args.args[2])
+            with self.assertRaisesRegex(ValueError, "cannot be combined"):
+                build(Path("core.tar.bz2"), Path("packages"), directory, Path("sdk"), None, system_ucrt=True)
+            with self.assertRaisesRegex(ValueError, "require both"):
+                build(Path("core.tar.bz2"), Path("packages"), directory, None, None)
 
     def test_local_server_restricts_routes_and_stops(self):
         with tempfile.TemporaryDirectory() as temporary, patch("launcher.validate_pyodide_runtime", return_value=set()):
@@ -109,6 +210,7 @@ class DesktopServerTests(unittest.TestCase):
                         self.assertEqual(response.status, expected)
                         if path == "/app":
                             self.assertNotIn("cdn.jsdelivr.net", response.getheader("Content-Security-Policy"))
+                            self.assertIn(b"Measurement System Analysis", response.read())
                         if path == "/runtime-config.json":
                             self.assertIn(b'"/runtime/"', response.read())
                         connection.close()

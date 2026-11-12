@@ -32,7 +32,6 @@ async function showStudy(study) {
     currentStudy = study;
     buttons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.study === study)));
     history.replaceState(null, '', `/app#${study}`);
-    document.title = study === 'type1' ? 'Type 1 Gage Study | Browser prototype' : 'MSA Handy Tool | Browser prototype';
     currentView = study === 'type1' ? mountType1(container, setBusy) : mountStudy(container, study, setBusy);
   } catch (error) {
     message.textContent = String(error.message || error);

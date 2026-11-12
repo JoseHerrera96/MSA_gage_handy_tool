@@ -11,11 +11,16 @@ them again for each build environment.
   https://github.com/moses-palmer/pystray/tree/v0.19.5
   The Windows modules used by this build are provided as Python source under
   `pystray/`; compatible modifications to these files can be loaded on the next
-  launch. The distributor must review the LGPL's source, replacement and
-  reverse-engineering provisions and ensure any required source remains available.
+  launch. The LGPL permits modification of the library and reverse engineering
+  for debugging such modifications. Preserve those rights and ensure any
+  required source remains available to recipients.
 - Pyodide 0.27.7 and matplotlib-pyodide 0.2.3: MPL 2.0. A license copy is in
   `licenses/MPL-2.0.txt`. Upstream source:
   https://github.com/pyodide/pyodide/tree/0.27.7
+  Its `pyodide-build` submodule is:
+  https://github.com/pyodide/pyodide-build/tree/438b59b5a5e881cef2ab76522ec4c416612b5298
+  matplotlib-pyodide 0.2.3 source:
+  https://github.com/pyodide/matplotlib-pyodide/tree/v0.2.3
   Ensure recipients can obtain the corresponding source, including any changes.
 - OpenBLAS 0.3.26 in the Pyodide runtime: BSD 3-Clause. The copyright and
   license are in `licenses/OPENBLAS-0.3.26.txt`. Upstream source:
@@ -38,9 +43,53 @@ them again for each build environment.
   OpenSSL source and notices:
   https://github.com/openssl/openssl/tree/openssl-3.5.7
 - libffi: its copyright and license are included in `licenses/PYTHON.txt`.
-- Microsoft runtime DLLs: Microsoft requires checking the applicable license
-  terms, provenance and REDIST list for the distributor's environment:
-  https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files
+- Microsoft UCRT and API-set DLLs: the `--system-ucrt` build does not distribute
+  local copies and requires Windows 10 or later. Windows supplies the UCRT:
+  https://learn.microsoft.com/en-us/cpp/windows/universal-crt-deployment
+  The alternative SDK build includes verified Windows SDK 10.0.22621.2428
+  redistributables and `licenses/WINDOWS-SDK.rtf`. That SDK license and REDIST
+  list impose conditions on redistribution:
+  https://learn.microsoft.com/en-us/legal/windows-sdk/redist
+- Microsoft Visual C++ runtime DLLs: review the applicable Visual Studio
+  license and redistribution terms for the distributor's environment:
+  https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution
+
+## Distribution review
+
+The `--system-ucrt` build omits the Windows SDK UCRT files and their SDK
+license. Its build script verifies the two Visual C++ DLLs against Microsoft
+14.42.34438.0; those files remain subject to applicable Visual Studio terms.
+The presence of those binaries does not itself establish the distributor's
+eligibility or compliance. See `licenses/build-manifest.json` for the selected
+mode.
+
+For the `sdk-redist-review` build, the 40 UCRT/API-set DLLs match the verified
+Windows SDK redistributable, and both Visual C++ runtime DLLs match the verified
+Microsoft 14.42.34438.0 redistributable. Their Microsoft signatures were valid
+when checked. All 15 Pyodide wheels contain license files; this check does not
+establish that every license obligation has been satisfied.
+
+Before sharing the SDK-based build, the distributor must address the following:
+
+- The included SDK license requires distributors and external end users to
+  agree to terms protecting the distributable code at least as much as that
+  agreement. This application does not currently request that agreement.
+  Including the SDK license file is not itself evidence of acceptance.
+- The SDK license requires a valid copyright notice. The application's
+  `LICENSE` has a year but does not identify a copyright holder. The owner
+  should determine the appropriate notice and whether it meets this requirement.
+- The SDK license includes an obligation for the distributor to indemnify,
+  defend and hold Microsoft harmless in connection with certain claims. This is
+  an obligation of the distributor, not something a build script can accept.
+- For either build, Visual Studio Community is installed, but installation alone does not prove
+  that the distributor qualifies under the applicable license for their use.
+- Confirm the corresponding source and any patches for the distributed MPL
+  and LGPL components are available to recipients, and review the LGPL's
+  modification, replacement and reverse-engineering provisions. The source ZIP
+  included in the bundle contains application source, not all third-party source.
+
+These points require review in the distributor's circumstances; they are not
+an assertion that the bundle is ready for public distribution.
 
 The application's browser and desktop build source is in
 `source/application-source.zip`. This is the snapshot used for this build; it

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import subprocess
 import sys
 import threading
 import webbrowser
@@ -54,6 +55,35 @@ def show_error(message: str) -> None:
     ctypes.windll.user32.MessageBoxW(0, message, "MSA Handy Tool", 0x10)
 
 
+def app_browsers() -> list[Path]:
+    try:
+        import winreg
+    except ImportError:
+        return []
+
+    browsers = []
+    for executable in ("msedge.exe", "chrome.exe"):
+        for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            try:
+                with winreg.OpenKey(root, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{executable}") as key:
+                    path = Path(winreg.QueryValueEx(key, "")[0])
+                if path.is_file() and path not in browsers:
+                    browsers.append(path)
+            except OSError:
+                continue
+    return browsers
+
+
+def open_app_window(url: str) -> bool:
+    for browser in app_browsers():
+        try:
+            subprocess.Popen([str(browser), f"--app={url}"])
+            return True
+        except OSError:
+            continue
+    return webbrowser.open(url)
+
+
 def main() -> None:
     try:
         import pystray
@@ -67,7 +97,7 @@ def main() -> None:
 
     def open_browser(icon=None, item=None) -> None:
         try:
-            if not webbrowser.open(url):
+            if not open_app_window(url):
                 show_error(f"No se pudo abrir el navegador. Abre esta direccion:\n{url}")
         except Exception:
             show_error(f"No se pudo abrir el navegador. Abre esta direccion:\n{url}")
