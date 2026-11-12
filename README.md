@@ -2,6 +2,8 @@
 
 Data Tracer delivers Measurement System Analysis (MSA) workflows for Type 1 Gage Study, Paired T-Test, and crossed Gage R&R ANOVA evaluations. Each workflow supports raw input, structured data, text reports, and self-contained HTML dashboards.
 
+[Download MSA Handy Tool for Windows x64 (v1.0.0-beta)](https://github.com/JoseHerrera96/MSA_gage_handy_tool/releases/download/v1.0.0-beta/MSA-Handy-Tool.zip)
+
 ## Repository Overview
 
 - `MSA_app.py` — Canonical Streamlit launcher for interactive MSA workflows.
@@ -289,8 +291,8 @@ The server binds to localhost and exposes only allowlisted project source files.
 
 ### Experimental Windows Executable
 
-The portable Windows x64 build is `dist/MSA-Handy-Tool/MSA-Handy-Tool.exe`.
-It requires Windows 10 or later.
+Download the ZIP using the link above, extract it, and open
+`MSA-Handy-Tool.exe`. It requires Windows 10 or later.
 Keep its `_internal` folder alongside the executable. Opening it starts a
 loopback-only server on an available port and opens an Edge or Chrome app
 window without the usual address bar. If neither is available, it opens the
