@@ -6,6 +6,8 @@ That keeps the UI layer thin and makes formatting behavior directly testable.
 
 from __future__ import annotations
 
+import math
+from decimal import Decimal
 from typing import Any
 
 import pandas as pd
@@ -18,13 +20,57 @@ def metric_status(value: float, threshold: float) -> str:
     return "PASS" if value >= threshold else "FAIL"
 
 
+def format_numeric_columns(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """Format numeric columns consistently without changing the source values."""
+    formatted = frame.copy()
+    for column in columns:
+        values = pd.to_numeric(frame[column], errors="coerce")
+        nonzero = [abs(float(value)) for value in values if pd.notna(value) and math.isfinite(float(value)) and value != 0]
+        decimals = max(5, 1 - Decimal(str(min(nonzero))).adjusted()) if nonzero else 5
+        scientific = decimals > 8
+
+        def display(value: float) -> str:
+            if pd.isna(value):
+                return ""
+            if not math.isfinite(value):
+                return str(value)
+            result = f"{value:.5e}" if scientific else f"{value:.{decimals}f}"
+            if result.startswith("-") and float(result) == 0:
+                return result[1:]
+            return result
+
+        formatted[column] = values.map(display)
+    return formatted
+
+
+def format_float_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Format floating-point columns while retaining integer identifiers and counts."""
+    return format_numeric_columns(frame, list(frame.select_dtypes(include="floating").columns))
+
+
+def format_numeric_value(value: float) -> str:
+    """Format an individual displayed value using the shared precision rule."""
+    return format_numeric_columns(pd.DataFrame({"value": [value]}), ["value"]).iloc[0, 0]
+
+
+def format_gage_evaluation(results: dict[str, Any]) -> pd.DataFrame:
+    """Present evaluation percentages from the full-precision variance components."""
+    frame = results["variance_components"].iloc[:5][
+        ["Source", "%Contribution", "%StudyVar", "%Tolerance"]
+    ].rename(columns={"%StudyVar": "%Study Var"})
+    columns = ["%Contribution", "%Study Var", "%Tolerance"]
+    formatted = format_numeric_columns(frame, columns)
+    for column in columns:
+        formatted[column] = formatted[column] + "%"
+    return formatted
+
+
 def format_type1_dataframe(summary_df: pd.DataFrame) -> pd.DataFrame:
     """Format Type 1 results for the summary table."""
     display_df = summary_df[
         ["Gage Item", "Reference", "Mean", "StdDev", "Bias", "T", "PValue", "Cg", "Cgk"]
     ].copy()
-    display_df["PValue"] = display_df["PValue"].map("{:.6f}".format)
-    display_df["Bias"] = display_df["Bias"].map("{:+.6f}".format)
+    display_df = format_numeric_columns(display_df, [column for column in display_df if column != "Gage Item"])
     return display_df.set_index("Gage Item")
 
 
@@ -50,13 +96,14 @@ def paired_summary_dataframe(metrics: dict[str, Any]) -> pd.DataFrame:
 
 def paired_descriptive_dataframe(metrics: dict[str, Any]) -> pd.DataFrame:
     """Format the three-row descriptive statistics table for Paired T reports."""
-    return pd.DataFrame(
+    frame = pd.DataFrame(
         [
-            {"Variable": "System A", "N": int(metrics["N"]), "Mean": f"{metrics['Mean_A']:.6f}", "StDev": f"{metrics['StDev_A']:.6f}", "SE Mean": f"{metrics['SE_A']:.6f}"},
-            {"Variable": "System B", "N": int(metrics["N"]), "Mean": f"{metrics['Mean_B']:.6f}", "StDev": f"{metrics['StDev_B']:.6f}", "SE Mean": f"{metrics['SE_B']:.6f}"},
-            {"Variable": "Difference (A − B)", "N": int(metrics["N"]), "Mean": f"{metrics['Mean_D']:.6f}", "StDev": f"{metrics['StDev_D']:.6f}", "SE Mean": f"{metrics['SE_D']:.6f}"},
+            {"Variable": "System A", "N": int(metrics["N"]), "Mean": metrics['Mean_A'], "StDev": metrics['StDev_A'], "SE Mean": metrics['SE_A']},
+            {"Variable": "System B", "N": int(metrics["N"]), "Mean": metrics['Mean_B'], "StDev": metrics['StDev_B'], "SE Mean": metrics['SE_B']},
+            {"Variable": "Difference (A − B)", "N": int(metrics["N"]), "Mean": metrics['Mean_D'], "StDev": metrics['StDev_D'], "SE Mean": metrics['SE_D']},
         ]
     )
+    return format_numeric_columns(frame, ["Mean", "StDev", "SE Mean"])
 
 
 def paired_outliers_dataframe(
@@ -78,9 +125,7 @@ def paired_outliers_dataframe(
 
 def format_paired_preview(paired_df: pd.DataFrame, max_rows: int = 10) -> pd.DataFrame:
     """Format the paired measurements for a readable web preview."""
-    preview = paired_df.head(max_rows).copy()
-    for column in ("System_A", "System_B", "Difference"):
-        preview[column] = preview[column].map(lambda value: f"{float(value):+.6f}")
+    preview = format_numeric_columns(paired_df, ["System_A", "System_B", "Difference"]).head(max_rows)
     return preview.rename(
         columns={
             "Observation": "Obs",

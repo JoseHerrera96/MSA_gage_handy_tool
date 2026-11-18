@@ -550,16 +550,23 @@ def build_paired_ttest_overview_dataframe(
     analyses_by_characteristic: dict[str, dict[str, Any]],
 ) -> pd.DataFrame:
     """Build an overview of per-characteristic paired results and diagnostics."""
+    from .presentation import format_numeric_columns
+
     characteristics = list(analyses_by_characteristic)
+    bounds = pd.DataFrame({"bounds": [
+        float(analyses_by_characteristic[name]["metrics"][key])
+        for name in characteristics for key in ("CI_Lower", "CI_Upper")
+    ]})
+    formatted_bounds = format_numeric_columns(bounds, ["bounds"])["bounds"]
     p_values = [
         float(analyses_by_characteristic[name]["metrics"]["P_Value"])
         for name in characteristics
     ]
     adjusted_p_values = _holm_adjusted_p_values(p_values)
     rows: list[dict[str, Any]] = []
-    for characteristic, raw_p, adjusted_p in zip(
+    for index, (characteristic, raw_p, adjusted_p) in enumerate(zip(
         characteristics, p_values, adjusted_p_values
-    ):
+    )):
         analysis = analyses_by_characteristic[characteristic]
         metrics = analysis["metrics"]
         diagnostics = analysis["diagnostics"]
@@ -573,7 +580,7 @@ def build_paired_ttest_overview_dataframe(
                 "N": int(metrics["N"]),
                 "Mean Difference (A - B)": float(metrics["Mean_D"]),
                 "Standardized Effect": standardized_effect,
-                "CI 95%": f"[{float(metrics['CI_Lower']):.6g}, {float(metrics['CI_Upper']):.6g}]",
+                "CI 95%": f"[{formatted_bounds.iloc[2 * index]}, {formatted_bounds.iloc[2 * index + 1]}]",
                 "P-Value": raw_p,
                 "Holm P-Value": adjusted_p,
                 "Outliers": int(diagnostics["Outlier_Count"]),
@@ -601,12 +608,13 @@ def create_paired_ttest_html_overview(
     """Create a standalone HTML summary of a multi-characteristic comparison."""
     from html import escape
 
-    table_html = overview.to_html(
+    from .presentation import format_float_columns
+
+    table_html = format_float_columns(overview).to_html(
         index=False,
         classes="results-table",
         border=0,
         escape=True,
-        float_format=lambda value: f"{value:.6g}",
     )
     html = f"""<!doctype html>
 <html lang="en">
@@ -1258,6 +1266,14 @@ def _render_stats_table_chart(
     fig.patch.set_facecolor("#FEFEFE")
     ax.axis("off")
 
+    from .presentation import format_numeric_columns
+
+    values = format_numeric_columns(pd.DataFrame({
+        "System A": [metrics["Mean_A"], metrics["StDev_A"], metrics["SE_A"]],
+        "System B": [metrics["Mean_B"], metrics["StDev_B"], metrics["SE_B"]],
+        "Difference": [metrics["Mean_D"], metrics["StDev_D"], metrics["SE_D"]],
+    }), ["System A", "System B", "Difference"])
+
     # Build table data
     table_data = [
         ["Statistic", "System A", "System B", "Difference"],
@@ -1269,21 +1285,15 @@ def _render_stats_table_chart(
         ],
         [
             "Mean",
-            f"{float(metrics['Mean_A']):.6f}",
-            f"{float(metrics['Mean_B']):.6f}",
-            f"{float(metrics['Mean_D']):.6f}",
+            *values.iloc[0].tolist(),
         ],
         [
             "StDev",
-            f"{float(metrics['StDev_A']):.6f}",
-            f"{float(metrics['StDev_B']):.6f}",
-            f"{float(metrics['StDev_D']):.6f}",
+            *values.iloc[1].tolist(),
         ],
         [
             "SE Mean",
-            f"{float(metrics['SE_A']):.6f}",
-            f"{float(metrics['SE_B']):.6f}",
-            f"{float(metrics['SE_D']):.6f}",
+            *values.iloc[2].tolist(),
         ],
     ]
 

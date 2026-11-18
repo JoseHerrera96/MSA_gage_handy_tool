@@ -19,6 +19,7 @@ from matplotlib.ticker import ScalarFormatter
 import numpy as np
 import pandas as pd
 
+from .presentation import format_float_columns, format_gage_evaluation, format_numeric_columns, format_numeric_value
 from .study_config import (
   GRR_MINIMUM_NDC,
   TYPE1_CAPABILITY_THRESHOLD,
@@ -235,20 +236,23 @@ def _build_summary_rows(chart_images: list[dict[str, Any]]) -> str:
     Returns:
         HTML string with all table rows.
     """
+    values = format_numeric_columns(
+      pd.DataFrame(chart_images), ["cg", "cgk", "var_repeat", "bias"]
+    )
     rows = ""
     for i, d in enumerate(chart_images):
         st_cls = "status-accept" if d["status"] == "ACCEPT" else "status-reject"
         cg_cls = "kpi-good" if d["cg"] >= TYPE1_CAPABILITY_THRESHOLD else "kpi-bad"
         cgk_cls = "kpi-good" if d["cgk"] >= TYPE1_CAPABILITY_THRESHOLD else "kpi-bad"
-        vr = f"{d['var_repeat']:.1f}" if pd.notna(d["var_repeat"]) else "—"
+        vr = values.iloc[i]["var_repeat"] or "—"
         rows += (
             f'<tr class="summary-row" data-idx="{i}">\n'
             f'  <td class="cell-dim">{escape(str(d["dim"]), quote=True)}</td>\n'
             f'  <td class="{st_cls}">{d["status"]}</td>\n'
-            f'  <td class="{cg_cls}">{d["cg"]:.2f}</td>\n'
-            f'  <td class="{cgk_cls}">{d["cgk"]:.2f}</td>\n'
+            f'  <td class="{cg_cls}">{values.iloc[i]["cg"]}</td>\n'
+            f'  <td class="{cgk_cls}">{values.iloc[i]["cgk"]}</td>\n'
             f'  <td class="cell-mono">{vr}%</td>\n'
-            f'  <td class="cell-mono">{d["bias"]:+.6f}</td>\n'
+            f'  <td class="cell-mono">{values.iloc[i]["bias"]}</td>\n'
             f'  <td class="cell-dim cell-expand">▸</td>\n'
             f"</tr>\n"
         )
@@ -269,17 +273,17 @@ def _build_detail_cards(chart_images: list[dict[str, Any]]) -> str:
     """
     cards = ""
     for i, d in enumerate(chart_images):
-        ref_fmt = f"{d['reference']:.8f}"
-        mean_fmt = f"{d['mean']:.8f}"
-        std_fmt = f"{d['stddev']:.8f}"
-        sv_fmt = f"{d['study_var']:.8f}"
-        tol_fmt = f"{d['tolerance']:.8f}"
-        md_fmt = f"{d['max_diff']:.8f}"
-        bias_fmt = f"{d['bias']:.8f}"
-        t_fmt = f"{d['t_value']:.4f}" if math.isfinite(d["t_value"]) else "∞"
-        p_fmt = f"{d['p_value']:.4f}"
-        vr_fmt = f"{d['var_repeat']:.2f}%" if pd.notna(d["var_repeat"]) else "N/A"
-        vrb_fmt = f"{d['var_repeat_bias']:.2f}%" if pd.notna(d["var_repeat_bias"]) else "N/A"
+        ref_fmt = format_numeric_value(d['reference'])
+        mean_fmt = format_numeric_value(d['mean'])
+        std_fmt = format_numeric_value(d['stddev'])
+        sv_fmt = format_numeric_value(d['study_var'])
+        tol_fmt = format_numeric_value(d['tolerance'])
+        md_fmt = format_numeric_value(d['max_diff'])
+        bias_fmt = format_numeric_value(d['bias'])
+        t_fmt = format_numeric_value(d['t_value']) if math.isfinite(d["t_value"]) else "∞"
+        p_fmt = format_numeric_value(d['p_value'])
+        vr_fmt = f"{format_numeric_value(d['var_repeat'])}%" if pd.notna(d["var_repeat"]) else "N/A"
+        vrb_fmt = f"{format_numeric_value(d['var_repeat_bias'])}%" if pd.notna(d["var_repeat_bias"]) else "N/A"
         border = "var(--color-status-accept)" if d["status"] == "ACCEPT" else "var(--color-status-reject)"
         status_bg = border
 
@@ -307,8 +311,8 @@ def _build_detail_cards(chart_images: list[dict[str, Any]]) -> str:
     </div>
     <div class="metric-group">
       <div class="metric-group-title" style="color:var(--color-brand-primary);">Capability</div>
-      <div class="metric-row"><span class="metric-label">Cg</span><span class="metric-value" style="font-size:15px;font-weight:600;">{d['cg']:.4f}</span></div>
-      <div class="metric-row"><span class="metric-label">Cgk</span><span class="metric-value" style="font-size:15px;font-weight:600;">{d['cgk']:.4f}</span></div>
+      <div class="metric-row"><span class="metric-label">Cg</span><span class="metric-value" style="font-size:15px;font-weight:600;">{format_numeric_value(d['cg'])}</span></div>
+      <div class="metric-row"><span class="metric-label">Cgk</span><span class="metric-value" style="font-size:15px;font-weight:600;">{format_numeric_value(d['cgk'])}</span></div>
       <div class="metric-row"><span class="metric-label">%Var(Repeat)</span><span class="metric-value">{vr_fmt}</span></div>
       <div class="metric-row"><span class="metric-label">%Var(R+Bias)</span><span class="metric-value">{vrb_fmt}</span></div>
     </div>
@@ -958,12 +962,12 @@ def create_gage_rr_html_dashboard(
 
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
 
-    anova_interaction_html = results_dict["anova_table_with_interaction"].to_html(
+    anova_interaction_html = format_float_columns(results_dict["anova_table_with_interaction"]).to_html(
       index=False, classes="stats-table"
     )
-    anova_html = results_dict["anova_table"].to_html(index=False, classes="stats-table")
-    var_html = results_dict["variance_components"].to_html(index=False, classes="stats-table")
-    eval_html = results_dict["gage_evaluation"].to_html(index=False, classes="stats-table")
+    anova_html = format_float_columns(results_dict["anova_table"]).to_html(index=False, classes="stats-table")
+    var_html = format_float_columns(results_dict["variance_components"]).to_html(index=False, classes="stats-table")
+    eval_html = format_gage_evaluation(results_dict).to_html(index=False, classes="stats-table")
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1091,11 +1095,10 @@ def build_gage_rr_overview_dataframe(
     """Build a cross-characteristic summary table for a Gage R&R study."""
     rows: list[dict[str, Any]] = []
     for characteristic, results in results_by_characteristic.items():
-        evaluation = results["gage_evaluation"].set_index("Source")
+        evaluation = results["variance_components"].set_index("Source")
 
         def percentage(source: str, column: str) -> float:
-            value = evaluation.at[source, column]
-            return float(str(value).rstrip("%"))
+            return float(evaluation.at[source, column])
 
         grr_percent = float(results["total_grr_pct"])
         ndc = int(results["ndc"])
@@ -1105,9 +1108,9 @@ def build_gage_rr_overview_dataframe(
                 "Verdict": classify_gage_rr(grr_percent, ndc),
                 "Total Gage R&R (% Study Var)": grr_percent,
                 "% Tolerance": percentage("Total Gage R&R", "%Tolerance"),
-                "Repeatability (% Study Var)": percentage("Repeatability", "%Study Var"),
-                "Reproducibility (% Study Var)": percentage("Reproducibility", "%Study Var"),
-                "Part-to-Part (% Study Var)": percentage("Part-to-Part", "%Study Var"),
+                "Repeatability (% Study Var)": percentage("Repeatability", "%StudyVar"),
+                "Reproducibility (% Study Var)": percentage("Reproducibility", "%StudyVar"),
+                "Part-to-Part (% Study Var)": percentage("Part-to-Part", "%StudyVar"),
                 "NDC": ndc,
                 "Interaction P-value": float(results["interaction_p_value"]),
                 "Interaction Pooled": bool(results["pooled_interaction"]),
@@ -1134,17 +1137,12 @@ def create_gage_rr_html_overview(
     passed = int(verdict_counts.get("PASS", 0))
     marginal = int(verdict_counts.get("MARGINAL", 0))
     failed = int(verdict_counts.get("FAIL", 0))
-    summary_html = summary.to_html(
+    display_summary = format_float_columns(summary)
+    for column in ("Total Gage R&R (% Study Var)", "% Tolerance", "Repeatability (% Study Var)", "Reproducibility (% Study Var)", "Part-to-Part (% Study Var)"):
+      display_summary[column] = display_summary[column] + "%"
+    summary_html = display_summary.to_html(
         index=False,
         classes="stats-table",
-        formatters={
-            "Total Gage R&R (% Study Var)": "{:.2f}%".format,
-            "% Tolerance": "{:.2f}%".format,
-            "Repeatability (% Study Var)": "{:.2f}%".format,
-            "Reproducibility (% Study Var)": "{:.2f}%".format,
-            "Part-to-Part (% Study Var)": "{:.2f}%".format,
-            "Interaction P-value": "{:.4f}".format,
-        },
         escape=True,
     )
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")

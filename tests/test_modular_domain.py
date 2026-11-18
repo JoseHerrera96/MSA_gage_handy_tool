@@ -33,7 +33,11 @@ from gage_tracer.paired_ttest import (
     parse_paired_unstructured_measurements,
 )
 from gage_tracer.presentation import (
+    format_float_columns,
+    format_gage_evaluation,
+    format_numeric_columns,
     format_paired_preview,
+    format_type1_dataframe,
     paired_data_quality_summary,
     paired_descriptive_dataframe,
 )
@@ -47,6 +51,41 @@ from gage_tracer.visualization import (
 
 def _measurement_row(tag: str, value: float = 1.0) -> str:
     return f'"{tag}"\t{value:.4f}\t1.0000\t0.1000\t-0.1000'
+
+
+class NumericPresentationTests(unittest.TestCase):
+    def test_boundary_missing_and_infinite_values(self) -> None:
+        frame = pd.DataFrame({"fixed": [1e-7, 0.0, float('nan'), float('inf'), -float('inf')], "scientific": [1e-8, -0.0, None, 2.0, -2.0]})
+        display = format_float_columns(frame)
+        self.assertEqual(display["fixed"].tolist(), ["0.00000010", "0.00000000", "", "inf", "-inf"])
+        self.assertEqual(display["scientific"].tolist(), ["1.00000e-08", "0.00000e+00", "", "2.00000e+00", "-2.00000e+00"])
+
+    def test_gage_evaluation_uses_unrounded_components(self) -> None:
+        variance = pd.DataFrame({"Source": ["Total", "Repeat", "Repro", "Operator", "Part", "All"], "%Contribution": [1e-8, 0, 1, 2, 3, 100], "%StudyVar": [1.23456789, 0, 1, 2, 3, 100], "%Tolerance": [1, 0, 1, 2, 3, 100]})
+        original = variance.copy(deep=True)
+        display = format_gage_evaluation({"variance_components": variance})
+        self.assertEqual(display.loc[0, "%Contribution"], "1.00000e-08%")
+        self.assertEqual(display.loc[1, "%Contribution"], "0.00000e+00%")
+        self.assertEqual(display.loc[0, "%Study Var"], "1.23457%")
+        self.assertEqual(format_float_columns(pd.DataFrame({"N": [1], "Value": [1.0]})).iloc[0].tolist(), [1, "1.00000"])
+        pd.testing.assert_frame_equal(variance, original)
+
+    def test_column_precision_and_scientific_notation_preserve_source(self) -> None:
+        frame = pd.DataFrame({"fixed": [1.23456789, 0.000001234, 0.0], "scientific": [1.25, -8.78e-14, -0.0]})
+        original = frame.copy(deep=True)
+        display = format_numeric_columns(frame, ["fixed", "scientific"])
+        self.assertEqual(display["fixed"].tolist(), ["1.2345679", "0.0000012", "0.0000000"])
+        self.assertEqual(display["scientific"].tolist(), ["1.25000e+00", "-8.78000e-14", "0.00000e+00"])
+        pd.testing.assert_frame_equal(frame, original)
+
+    def test_type1_summary_formats_each_column_consistently(self) -> None:
+        summary = pd.DataFrame({"Gage Item": ["A", "B"], "Reference": [1.0, 0.0], "Mean": [1.234567, 0.000001234], "StdDev": [0.0, 1e-14], "Bias": [0.0, -0.0000001], "T": [1.0, 0.0], "PValue": [0.05, 0.0], "Cg": [1.23, 1.5], "Cgk": [1.22, 1.4]})
+        original = summary.copy(deep=True)
+        display = format_type1_dataframe(summary)
+        self.assertEqual(display["Mean"].tolist(), ["1.2345670", "0.0000012"])
+        self.assertEqual(display["StdDev"].tolist(), ["0.00000e+00", "1.00000e-14"])
+        self.assertEqual(display["Bias"].tolist(), ["0.00000000", "-0.00000010"])
+        pd.testing.assert_frame_equal(summary, original)
 
 
 class Type1ParserTests(unittest.TestCase):
@@ -813,7 +852,12 @@ class PairedPresentationTests(unittest.TestCase):
         preview = format_paired_preview(paired_df)
 
         self.assertEqual(preview.columns.tolist(), ["Obs", "System A", "System B", "A − B"])
-        self.assertEqual(preview.loc[0, "A − B"], "+0.100000")
+        self.assertEqual(preview.loc[0, "A − B"], "0.10000")
+
+    def test_preview_uses_precision_from_rows_beyond_preview(self) -> None:
+        paired_df = pd.DataFrame({"Observation": [1, 2], "System_A": [1.0, 1e-8], "System_B": [2.0, 2.0], "Difference": [-1.0, 0.0]})
+        preview = format_paired_preview(paired_df, max_rows=1)
+        self.assertEqual(preview.loc[0, "System A"], "1.00000e+00")
 
     def test_paired_quality_summary(self) -> None:
         paired_df = pd.DataFrame(
@@ -846,7 +890,7 @@ class PairedPresentationTests(unittest.TestCase):
         summary = paired_descriptive_dataframe(metrics)
 
         self.assertEqual(summary["Variable"].tolist(), ["System A", "System B", "Difference (A − B)"])
-        self.assertEqual(summary.loc[2, "Mean"], "0.100000")
+        self.assertEqual(summary.loc[2, "Mean"], "0.10000")
 
 
 class PairedDiagnosticTests(unittest.TestCase):

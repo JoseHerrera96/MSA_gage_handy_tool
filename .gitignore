@@ -27,6 +27,7 @@ desktop.ini
 *.mwx
 
 # ── Generated workflow outputs ──
+/dist/
 outputs/*/*
 !outputs/*/.gitkeep
 !outputs/.gitkeep

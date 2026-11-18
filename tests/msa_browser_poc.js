@@ -39,9 +39,15 @@ function invalidate() {
 }
 function buildFiles() {
   const labels = study === "paired" ? ["System A measurements", "System B measurements"]
-    : distribution() === "parts" ? Array.from({length: 10}, (_, index) => `Part ${index + 1} | 9 reports`)
-    : distribution() === "operators" ? Array.from({length: 3}, (_, index) => `Operator ${index + 1} | 30 reports`)
-    : ["Gage R&R data | 90 reports"];
+    : distribution() === "parts" ? Array.from({length: 10}, (_, index) => `Part ${index + 1}`)
+    : distribution() === "operators" ? Array.from({length: 3}, (_, index) => `Operator ${index + 1}`)
+    : ["Gage R&R data"];
+  const reportHint = element("report-count-hint");
+  reportHint.hidden = false;
+  reportHint.textContent = study === "paired" ? "Recommended: at least 10 parts measured by both systems."
+    : distribution() === "parts" ? "90 reports total (9 per part)."
+    : distribution() === "operators" ? "90 reports total (30 per operator)."
+    : "90 reports total.";
   const container = element("files");
   container.replaceChildren();
   labels.forEach(labelText => {
@@ -50,6 +56,7 @@ function buildFiles() {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".txt,text/plain";
+    input.setAttribute("aria-describedby", "report-count-hint");
     input.addEventListener("change", invalidate);
     label.appendChild(input);
     container.appendChild(label);
@@ -67,7 +74,7 @@ function addMetric(label, value) {
   item.append(term, definition);
   element("metrics").appendChild(item);
 }
-function addTable(title, data) {
+function addTable(title, data, collapsible = false) {
   const heading = document.createElement("h3");
   heading.textContent = title;
   const wrapper = document.createElement("div");
@@ -78,7 +85,16 @@ function addTable(title, data) {
   const body = table.createTBody();
   data.data.forEach(row => { const tableRow = body.insertRow(); row.forEach(value => { tableRow.insertCell().textContent = value == null ? "" : String(value); }); });
   wrapper.appendChild(table);
-  element("tables").append(heading, wrapper);
+  if (collapsible) {
+    const details = document.createElement("details");
+    details.className = "data-preview";
+    const summary = document.createElement("summary");
+    summary.textContent = title;
+    details.append(summary, wrapper);
+    element("tables").appendChild(details);
+  } else {
+    element("tables").append(heading, wrapper);
+  }
 }
 function download(contents, name, mime, binary = false) {
   const data = binary ? Uint8Array.from(atob(contents), character => character.charCodeAt(0)) : contents;
@@ -223,18 +239,18 @@ async function renderReport() {
     finally { dropGlobal("selected_report"); }
     element("context").textContent = overview.numeric ? "Numeric series" : selected;
     if (study === "grr") {
-      addMetric("Total Gage R&R", `${Number(detail.metrics.total_grr_pct).toFixed(2)}%`);
+      addMetric("Total Gage R&R", `${detail.display_metrics.total_grr_pct}%`);
       addMetric("NDC", detail.metrics.ndc);
-      addMetric("Study Variation", Number(detail.metrics.study_variation).toFixed(4));
+      addMetric("Study Variation", detail.display_metrics.study_variation);
       const row = overview.table.data.find(item => item[0] === selected);
       addMetric("Verdict", row[1]);
       for (const [key, title] of [["anova_table_with_interaction", "ANOVA Table With Interaction"], ["anova_table", "Final ANOVA Table"], ["variance_components", "Variance Components"], ["gage_evaluation", "Gage Evaluation"]]) addTable(title, detail.tables[key]);
-      addTable("Data preview", detail.data);
-      element("notice").textContent = `Interaction ${detail.metrics.pooled_interaction ? "pooled" : "not pooled"} (p = ${Number(detail.metrics.interaction_p_value).toFixed(4)}).`;
+      addTable("Data preview", detail.data, true);
+      element("notice").textContent = `Interaction ${detail.metrics.pooled_interaction ? "pooled" : "not pooled"} (p = ${detail.display_metrics.interaction_p_value}).`;
       element("notice").hidden = false;
     } else {
-      for (const [label, value] of [["Sample size", detail.metrics.N], ["Mean difference", Number(detail.metrics.Mean_D).toPrecision(6)], ["T-Statistic", Number(detail.metrics.T_Value).toFixed(4)], ["P-Value", Number(detail.metrics.P_Value).toFixed(6)]]) addMetric(label, value);
-      element("notice").textContent = `95% CI: [${detail.metrics.CI_Lower}, ${detail.metrics.CI_Upper}]. Outliers: ${detail.diagnostics.Outlier_Count}; normality: ${detail.diagnostics.Normality_Status}; sample size: ${detail.diagnostics.Sample_Size_Status}. A nonsignificant result does not establish equivalence.`;
+      for (const [label, value] of [["Sample size", detail.metrics.N], ["Mean difference", detail.display_metrics.Mean_D], ["T-Statistic", detail.display_metrics.T_Value], ["P-Value", detail.display_metrics.P_Value]]) addMetric(label, value);
+      element("notice").textContent = `95% CI: [${detail.display_metrics.CI_Lower}, ${detail.display_metrics.CI_Upper}]. Outliers: ${detail.diagnostics.Outlier_Count}; normality: ${detail.diagnostics.Normality_Status}; sample size: ${detail.diagnostics.Sample_Size_Status}. A nonsignificant result does not establish equivalence.`;
       element("notice").hidden = false;
       addTable("Paired observations preview", detail.table);
     }

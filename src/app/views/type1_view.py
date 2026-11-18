@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from gage_tracer.presentation import format_numeric_value
+
 from io import StringIO
 
 from app.components.alerts import show_processing_error
@@ -128,8 +130,8 @@ def render_type1_page() -> None:
         st.markdown("#### Key results")
         metrics_cols = st.columns(4)
         metrics_cols[0].metric("Dimensions", total)
-        metrics_cols[1].metric("Average Cg", f"{mean_cg:.3f}", delta=cg_status)
-        metrics_cols[2].metric("Average Cgk", f"{mean_cgk:.3f}", delta=cgk_status)
+        metrics_cols[1].metric("Average Cg", format_numeric_value(mean_cg), delta=cg_status)
+        metrics_cols[2].metric("Average Cgk", format_numeric_value(mean_cgk), delta=cgk_status)
         metrics_cols[3].metric("Pass rate", pass_rate)
 
     if cg_status == "PASS" and cgk_status == "PASS":

@@ -6,6 +6,7 @@ from typing import Any
 from app.components.alerts import show_processing_error
 from app.components.file_pills import render_file_pills
 from app.components.input_examples import render_input_examples
+from gage_tracer.presentation import format_float_columns, format_gage_evaluation, format_numeric_value
 from app.support import (
     GRR_DESIGN,
     GRR_MINIMUM_NDC,
@@ -241,7 +242,7 @@ def render_gage_rr_page() -> None:
             f"Study design: {GRR_DESIGN.parts} parts × {GRR_DESIGN.operators} operators × "
             f"{GRR_DESIGN.trials_per_part} trials · {df['Report'].nunique()} reports"
         )
-        st.dataframe(summary, use_container_width=True, hide_index=True)
+        st.dataframe(format_float_columns(summary), hide_index=True)
 
         with st.container():
             st.markdown("#### Export overview")
@@ -290,9 +291,9 @@ def render_gage_rr_page() -> None:
     with st.container():
         st.markdown("#### Key results")
         metrics_cols = st.columns(4)
-        metrics_cols[0].metric("Total Gage R&R", f"{grr_pct:.2f}%")
+        metrics_cols[0].metric("Total Gage R&R", f"{format_numeric_value(grr_pct)}%")
         metrics_cols[1].metric("NDC", f"{ndc}")
-        metrics_cols[2].metric("Study Variation", f"{results['study_variation']:.4f}")
+        metrics_cols[2].metric("Study Variation", format_numeric_value(results['study_variation']))
         metrics_cols[3].metric("Verdict", verdict, delta=verdict_color)
 
     st.markdown(f"**{verdict_color} {verdict_msg}**")
@@ -303,28 +304,27 @@ def render_gage_rr_page() -> None:
 
     with st.container():
         st.markdown("#### ANOVA Table With Interaction")
-        st.dataframe(results["anova_table_with_interaction"], use_container_width=True)
+        st.dataframe(format_float_columns(results["anova_table_with_interaction"]))
 
     st.divider()
 
     with st.container():
         st.markdown("#### Final ANOVA Table")
         anova_df = results["anova_table"]
-        st.dataframe(anova_df, use_container_width=True)
+        st.dataframe(format_float_columns(anova_df))
 
     st.divider()
 
     with st.container():
         st.markdown("#### Variance Components")
         var_df = results["variance_components"]
-        st.dataframe(var_df, use_container_width=True)
+        st.dataframe(format_float_columns(var_df))
 
     st.divider()
 
     with st.container():
         st.markdown("#### Gage Evaluation")
-        gage_eval_df = results["gage_evaluation"]
-        st.dataframe(gage_eval_df, use_container_width=True)
+        st.dataframe(format_gage_evaluation(results))
 
     st.divider()
 
@@ -338,15 +338,15 @@ def render_gage_rr_page() -> None:
     with st.container():
         st.markdown("#### Pooled Interaction Status")
         if results["pooled_interaction"]:
-            st.info(f"Part*Operator interaction was pooled with error (p-value = {results['interaction_p_value']:.4f} > 0.05)")
+            st.info(f"Part*Operator interaction was pooled with error (p-value = {format_numeric_value(results['interaction_p_value'])} > 0.05)")
         else:
-            st.warning(f"Part*Operator interaction was NOT pooled (p-value = {results['interaction_p_value']:.4f} ≤ 0.05)")
+            st.warning(f"Part*Operator interaction was NOT pooled (p-value = {format_numeric_value(results['interaction_p_value'])} ≤ 0.05)")
 
     st.divider()
 
     with st.container():
         st.markdown("#### Data Preview")
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(format_float_columns(df))
 
     st.divider()
 

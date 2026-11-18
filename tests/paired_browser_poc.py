@@ -5,6 +5,7 @@ from io import StringIO
 from pathlib import Path
 
 from gage_tracer.data_parser import paired_input_has_blocks
+from gage_tracer.presentation import format_float_columns, format_numeric_value
 from gage_tracer.paired_ttest import (
     build_paired_ttest_overview_dataframe,
     calculate_paired_ttest_diagnostics,
@@ -66,7 +67,7 @@ def paired_overview(state):
     return {
         "numeric": False,
         "characteristics": list(analyses),
-        "table": overview.to_dict(orient="split"),
+        "table": format_float_columns(overview).to_dict(orient="split"),
         "significant": int((overview["Holm P-Value"] < 0.05).sum()),
         "warnings": int(((overview["Outlier Status"] != "PASS") | (overview["Normality"] != "PASS")).sum()),
     }
@@ -77,8 +78,9 @@ def paired_detail(state, characteristic):
     metrics, diagnostics = analysis["metrics"], analysis["diagnostics"]
     return {
         "metrics": {key: metrics[key] for key in ("N", "Mean_D", "T_Value", "P_Value", "CI_Lower", "CI_Upper")},
+        "display_metrics": {key: format_numeric_value(metrics[key]) for key in ("Mean_D", "T_Value", "P_Value", "CI_Lower", "CI_Upper")},
         "diagnostics": {key: diagnostics[key] for key in ("Outlier_Count", "Outlier_Status", "Normality_Status", "Sample_Size_Status")},
-        "table": analysis["paired_df"].head(10).to_dict(orient="split"),
+        "table": format_float_columns(analysis["paired_df"]).head(10).to_dict(orient="split"),
     }
 
 

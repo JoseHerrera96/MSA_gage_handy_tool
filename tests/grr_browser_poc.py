@@ -5,6 +5,7 @@ from io import StringIO
 
 from gage_tracer.calculations import calculate_gage_rr_by_characteristic
 from gage_tracer.data_parser import normalize_custom_report_markers, transform_gage_rr_data, transform_gage_rr_grouped_data
+from gage_tracer.presentation import format_float_columns, format_gage_evaluation, format_numeric_value
 from gage_tracer.visualization import build_gage_rr_overview_dataframe, create_gage_rr_html_dashboard, create_gage_rr_html_overview, create_gage_rr_html_zip
 
 
@@ -35,7 +36,7 @@ def grr_overview(state):
     overview = build_gage_rr_overview_dataframe(results)
     counts = overview["Verdict"].value_counts()
     return {
-        "table": overview.to_dict(orient="split"),
+        "table": format_float_columns(overview).to_dict(orient="split"),
         "characteristics": list(results),
         "reports": int(frame["Report"].nunique()),
         "counts": {verdict: int(counts.get(verdict, 0)) for verdict in ("PASS", "MARGINAL", "FAIL")},
@@ -46,8 +47,9 @@ def grr_detail(state, characteristic):
     result = state["results"][characteristic]
     return {
         "metrics": {key: result[key] for key in ("total_grr_pct", "ndc", "study_variation", "pooled_interaction", "interaction_p_value")},
-        "tables": {key: result[key].reset_index().to_dict(orient="split") for key in ("anova_table_with_interaction", "anova_table", "variance_components", "gage_evaluation")},
-        "data": state["frame"].to_dict(orient="split"),
+        "display_metrics": {key: format_numeric_value(result[key]) for key in ("total_grr_pct", "study_variation", "interaction_p_value")},
+        "tables": {key: format_float_columns(result[key]).reset_index().to_dict(orient="split") for key in ("anova_table_with_interaction", "anova_table", "variance_components")} | {"gage_evaluation": format_gage_evaluation(result).reset_index().to_dict(orient="split")},
+        "data": format_float_columns(state["frame"]).to_dict(orient="split"),
     }
 
 

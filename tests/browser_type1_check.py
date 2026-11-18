@@ -39,6 +39,13 @@ def check_dark_charts(html):
     return len(images)
 
 
+def check_grr_html_has_no_data_preview(html):
+    if re.search(r"<th\b[^>]*>\s*(?:Report|Measurement)\s*</th>", html, re.IGNORECASE):
+        raise AssertionError("Gage R&R HTML contains a raw data preview table")
+    if "Data preview" in html:
+        raise AssertionError("Gage R&R HTML contains a data preview section")
+
+
 def synthetic_cases():
     examples = load_examples()
     cases = [(mode, examples("type1", mode)["type1.txt"], "REPORT", "REPORT") for mode in ("blocks", "periodic", "custom")]
@@ -52,6 +59,8 @@ def synthetic_cases():
 
 def check_case(page, case, filename):
     mode, text, start_marker, end_marker = case
+    if page.locator("#report-count-hint").inner_text() != "Recommended: at least 30 reports.":
+        raise AssertionError("Type 1 report count recommendation is missing")
     native = analyze_type1(text, mode, start_marker, end_marker, filename)
     page.locator(f'input[name="format"][value="{mode}"]').check()
     if mode == "custom":
@@ -148,7 +157,12 @@ def check_study_download(page, expected_archive):
         if expected[name]["text"] != actual[name]["text"] or len(expected[name]["images"]) != len(actual[name]["images"]):
             raise AssertionError("Browser archive report differs from native Python")
     with ZipFile(BytesIO(actual_archive)) as archive:
-        chart_count = sum(check_dark_charts(archive.read(name).decode("utf-8")) for name in archive.namelist())
+        chart_count = 0
+        for name in archive.namelist():
+            html = archive.read(name).decode("utf-8")
+            if "Gage_RR" in name:
+                check_grr_html_has_no_data_preview(html)
+            chart_count += check_dark_charts(html)
     if not chart_count:
         raise AssertionError("Downloaded archive has no charts")
 
@@ -162,6 +176,10 @@ def check_other_studies(page, base_url):
     for mode in ("blocks", "periodic", "custom"):
         for distribution, order in (("single", "part-major"), ("single", "operator-major"), ("parts", "part-major"), ("operators", "part-major")):
             page.locator("#distribution").select_option(distribution)
+            expected_hint = {"single": "90 reports total.", "parts": "90 reports total (9 per part).", "operators": "90 reports total (30 per operator)."}[distribution]
+            expected_labels = {"single": ["Gage R&R data"], "parts": [f"Part {index}" for index in range(1, 11)], "operators": [f"Operator {index}" for index in range(1, 4)]}[distribution]
+            if page.locator("#report-count-hint").inner_text() != expected_hint or page.locator("#files label").all_inner_texts() != expected_labels:
+                raise AssertionError("Gage R&R upload labels or report count hint are incorrect")
             if distribution == "single":
                 page.locator("#order").select_option(order)
             page.locator(f'input[name="format"][value="{mode}"]').check()
@@ -178,6 +196,8 @@ def check_other_studies(page, base_url):
     page.wait_for_function("document.querySelector('#status').textContent === 'Ready' || document.querySelector('#status').classList.contains('error')", timeout=120000)
     if page.locator("#status").inner_text() != "Ready":
         raise AssertionError("Paired T browser runtime initialization failed")
+    if page.locator("#report-count-hint").inner_text() != "Recommended: at least 10 parts measured by both systems." or page.locator("#files label").all_inner_texts() != ["System A measurements", "System B measurements"]:
+        raise AssertionError("Paired T upload guidance is incorrect")
     for mode in ("blocks", "periodic", "custom"):
         page.locator(f'input[name="format"][value="{mode}"]').check()
         if mode == "custom":
@@ -194,6 +214,15 @@ def check_unified_app(page, base_url):
     runtime_requests = []
     page.on("request", lambda request: runtime_requests.append(request.url) if urlsplit(request.url).path.endswith("/pyodide.mjs") else None)
     page.goto(base_url + "/app", wait_until="domcontentloaded", timeout=120000)
+    if page.locator('link[rel="icon"]').get_attribute("href") != "/app-icon.png":
+        raise AssertionError("App icon link is missing")
+    if not page.evaluate("""async () => {
+        const image = new Image();
+        image.src = document.querySelector('link[rel="icon"]').href;
+        try { await image.decode(); return image.naturalWidth === 128; }
+        catch { return false; }
+    }"""):
+        raise AssertionError("App icon could not be loaded")
     page.wait_for_function("document.querySelector('#status')?.textContent === 'Ready' || document.querySelector('#status')?.classList.contains('error')", timeout=120000)
     if page.locator("#status").inner_text() != "Ready":
         raise AssertionError("Unified app initialization failed")
@@ -211,9 +240,25 @@ def check_unified_app(page, base_url):
     grr = grr_overview(analyze_grr(files, "blocks", "single"))
     compare_table(page, grr["table"])
     page.locator("#report").select_option(grr["characteristics"][0])
+    preview = page.locator("#tables details.data-preview")
+    preview.wait_for(state="attached", timeout=120000)
+    if preview.count() != 1 or preview.get_attribute("open") is not None or preview.locator("table").is_visible():
+        raise AssertionError("Gage R&R data preview should start collapsed")
+    preview.locator("summary").click()
+    if not preview.locator("table").is_visible() or preview.locator("tbody tr").count() != 90:
+        raise AssertionError("Gage R&R data preview did not open with all 90 reports")
+    preview.locator("summary").click()
+    if preview.locator("table").is_visible():
+        raise AssertionError("Gage R&R data preview did not collapse")
     check_charts(page, 1)
-    if page.locator("#tables table").last.locator("tbody tr").count() != 90:
-        raise AssertionError("Gage R&R data preview did not contain all 90 reports")
+    with page.expect_download(timeout=120000) as download_info:
+        page.get_by_role("button", name="Download dashboard HTML").click()
+    download = download_info.value
+    dashboard = download.path().read_bytes().decode("utf-8")
+    download.delete()
+    check_grr_html_has_no_data_preview(dashboard)
+    if not check_dark_charts(dashboard):
+        raise AssertionError("Gage R&R dashboard has no chart")
     page.once("dialog", lambda dialog: dialog.accept())
     page.get_by_role("button", name="Paired T", exact=True).click()
     page.wait_for_function("document.querySelector('#status')?.textContent === 'Ready'", timeout=120000)
@@ -277,7 +322,7 @@ def run_browser(executable, base_url, cases, filename, include_other_studies):
         if include_other_studies:
             check_other_studies(page, base_url)
             check_unified_app(page, base_url)
-        allowed_paths = set(SOURCES) | {"/app", "/browser-app.js", "/type1", "/type1.js", "/grr", "/paired", "/msa.js", "/runtime.js", "/runtime-config.json"}
+        allowed_paths = set(SOURCES) | {"/app", "/app-icon.png", "/browser-app.js", "/type1", "/type1.js", "/grr", "/paired", "/msa.js", "/runtime.js", "/runtime-config.json"}
         allowed_paths.update(f"/runtime/{name}" for name in ProofHandler.runtime_allowlist)
         if blocked or sockets or any(method != "GET" or parsed.query or body or parsed.path not in allowed_paths for method, parsed, body in requests):
             raise AssertionError("Unexpected browser network activity")
