@@ -38,7 +38,9 @@ class DesktopServerTests(unittest.TestCase):
         tray.Icon.return_value = icon
         tray.Menu.side_effect = lambda *items: items
         tray.MenuItem.side_effect = lambda text, action, **kwargs: (text, action)
-        with patch.dict(sys.modules, {"pystray": tray}), patch.object(launcher, "start_server", return_value=server), patch.object(launcher, "open_app_window", return_value=True) as browser:
+        process = MagicMock()
+        process.poll.return_value = None
+        with patch.dict(sys.modules, {"pystray": tray}), patch.object(launcher, "start_server", return_value=server), patch.object(launcher, "open_app_window", return_value=process) as browser, patch.object(launcher.threading, "Thread"):
             def run(setup):
                 setup(icon)
                 items = tray.Icon.call_args.kwargs["menu"]
@@ -49,23 +51,44 @@ class DesktopServerTests(unittest.TestCase):
             icon.run.side_effect = run
             launcher.main()
         self.assertEqual(browser.call_count, 2)
-        browser.assert_called_with("http://127.0.0.1:12345/app")
+        self.assertEqual(browser.call_args.args[0], "http://127.0.0.1:12345/app")
         icon.stop.assert_called_once()
         server.shutdown.assert_called_once()
         server.server_close.assert_called_once()
 
-    def test_app_window_uses_registered_browser_and_falls_back(self):
+    def test_app_window_uses_registered_browser_and_isolated_profile(self):
         import launcher
 
         url = "http://127.0.0.1:12345/app"
-        with patch.object(launcher, "app_browsers", return_value=[Path("edge.exe"), Path("chrome.exe")]), patch.object(launcher.subprocess, "Popen", side_effect=[OSError("unavailable"), None]) as run, patch.object(launcher.webbrowser, "open") as fallback:
-            self.assertTrue(launcher.open_app_window(url))
-            self.assertEqual(run.call_args_list[0].args[0], ["edge.exe", f"--app={url}"])
-            self.assertEqual(run.call_args_list[1].args[0], ["chrome.exe", f"--app={url}"])
-            fallback.assert_not_called()
-        with patch.object(launcher, "app_browsers", return_value=[]), patch.object(launcher.webbrowser, "open", return_value=True) as fallback:
-            self.assertTrue(launcher.open_app_window(url))
-            fallback.assert_called_once_with(url)
+        process = object()
+        profile = Path("isolated-profile")
+        with patch.object(launcher, "app_browsers", return_value=[Path("edge.exe"), Path("chrome.exe")]), patch.object(launcher.subprocess, "Popen", side_effect=[OSError("unavailable"), process]) as run:
+            self.assertIs(launcher.open_app_window(url, profile), process)
+            self.assertEqual(run.call_args_list[0].args[0], ["edge.exe", f"--app={url}", f"--user-data-dir={profile}", "--disable-background-mode", "--no-first-run"])
+            self.assertEqual(run.call_args_list[1].args[0][0], "chrome.exe")
+        with patch.object(launcher, "app_browsers", return_value=[]):
+            self.assertIsNone(launcher.open_app_window(url, profile))
+
+    def test_closing_browser_stops_tray_and_server(self):
+        from unittest.mock import MagicMock
+        import launcher
+
+        server = MagicMock(server_port=12345)
+        process = MagicMock()
+        process.poll.return_value = 0
+        icon = MagicMock()
+        tray = MagicMock()
+        tray.Icon.return_value = icon
+        tray.Menu.side_effect = lambda *items: items
+        tray.MenuItem.side_effect = lambda text, action, **kwargs: (text, action)
+        with patch.dict(sys.modules, {"pystray": tray}), patch.object(launcher, "start_server", return_value=server), patch.object(launcher, "open_app_window", return_value=process), patch.object(launcher.threading, "Thread") as thread:
+            icon.run.side_effect = lambda setup: setup(icon)
+            launcher.main()
+            thread.call_args.kwargs["target"]()
+        process.wait.assert_called_once()
+        icon.stop.assert_called_once()
+        server.shutdown.assert_called_once()
+        server.server_close.assert_called_once()
 
     def test_tray_failure_stops_server(self):
         from unittest.mock import MagicMock

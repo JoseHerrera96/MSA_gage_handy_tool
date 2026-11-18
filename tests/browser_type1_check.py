@@ -236,6 +236,7 @@ def check_unified_app(page, base_url):
     page.wait_for_function("document.querySelector('#status')?.textContent === 'Ready'", timeout=120000)
     examples = load_examples()
     files = list(examples("grr", "blocks", "single", "part-major").items())
+    files = [(name, "\n".join(line + "\n" + line.replace("Diameter", "Height", 1) if line.startswith("Diameter\t") else line for line in text.splitlines()) + "\n") for name, text in files]
     upload_synthetic(page, files)
     grr = grr_overview(analyze_grr(files, "blocks", "single"))
     compare_table(page, grr["table"])
@@ -245,11 +246,14 @@ def check_unified_app(page, base_url):
     if preview.count() != 1 or preview.get_attribute("open") is not None or preview.locator("table").is_visible():
         raise AssertionError("Gage R&R data preview should start collapsed")
     preview.locator("summary").click()
-    if not preview.locator("table").is_visible() or preview.locator("tbody tr").count() != 90:
-        raise AssertionError("Gage R&R data preview did not open with all 90 reports")
+    if not preview.locator("table").is_visible() or preview.locator("tbody tr").count() != 180:
+        raise AssertionError("Gage R&R data preview did not open with both characteristics")
     preview.locator("summary").click()
     if preview.locator("table").is_visible():
         raise AssertionError("Gage R&R data preview did not collapse")
+    check_charts(page, 1)
+    page.locator("#report").select_option(grr["characteristics"][1])
+    page.wait_for_function("name => document.querySelector('#context').textContent === name", arg=grr["characteristics"][1], timeout=120000)
     check_charts(page, 1)
     with page.expect_download(timeout=120000) as download_info:
         page.get_by_role("button", name="Download dashboard HTML").click()
@@ -279,13 +283,26 @@ def check_unified_app(page, base_url):
 
 
 def check_charts(page, count):
-    page.get_by_role("button", name="Show charts" if count == 1 else "Show full report").click(timeout=120000)
+    if count == 1:
+        charts = page.locator("#charts details.chart-section")
+        charts.wait_for(state="attached", timeout=120000)
+        if charts.get_attribute("open") is None:
+            raise AssertionError("Gage R&R charts should start expanded")
+    else:
+        page.get_by_role("button", name="Show full report").click(timeout=120000)
     page.wait_for_function("document.querySelector('#status').textContent === 'Charts ready.' || document.querySelector('#status').classList.contains('error')", timeout=120000)
     if page.locator("#status").inner_text() != "Charts ready.":
         raise AssertionError("Chart preview generation failed")
     page.wait_for_function("[...document.querySelectorAll('#charts img')].every(image => image.complete && image.naturalWidth > 0)", timeout=120000)
     if page.locator("#charts img").count() != count:
         raise AssertionError("Unexpected chart count")
+    if count == 1:
+        charts.locator("summary").click()
+        if charts.locator("img").is_visible():
+            raise AssertionError("Gage R&R charts did not collapse")
+        charts.locator("summary").click()
+        if not charts.locator("img").is_visible():
+            raise AssertionError("Gage R&R charts did not reopen")
     if count == 7:
         for name, heading in (("Summary Report", "Comments"), ("Diagnostic Report", "Severe outlier summary"), ("Report Card", "Input quality")):
             page.get_by_role("button", name=name, exact=True).click()

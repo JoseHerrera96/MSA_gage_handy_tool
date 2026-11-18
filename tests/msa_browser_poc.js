@@ -168,15 +168,22 @@ function addPairedReport(report, container) {
   container.replaceChildren(tabs, ...panels.map(item => item.panel));
   panels[0].tab.click();
 }
-function addChartPreview() {
+async function addChartPreview() {
   const container = element("charts");
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "secondary";
-  button.textContent = study === "paired" ? "Show full report" : "Show charts";
-  button.addEventListener("click", async () => {
-    setBusy(true);
+  let chartContent = container;
+  if (study === "grr") {
+    const details = document.createElement("details");
+    details.className = "chart-section";
+    details.open = true;
+    const summary = document.createElement("summary");
+    summary.textContent = "Gage R&R charts";
+    chartContent = document.createElement("div");
+    details.append(summary, chartContent);
+    container.appendChild(details);
+  }
+  async function generateCharts() {
     setStatus("Generating charts...");
+    if (study === "grr") chartContent.textContent = "Generating charts...";
     try {
       python.globals.set("selected_report", element("report").value);
       const html = await python.runPythonAsync(`${study}_adapter['${study}_export'](current_state, 'dashboard', selected_report)`);
@@ -198,17 +205,39 @@ function addChartPreview() {
           figure.append(caption, chart);
           preview.appendChild(figure);
         }
-        container.replaceChildren(preview);
+        chartContent.replaceChildren(preview);
       }
       setStatus("Charts ready.");
     } catch (error) {
       setStatus(`Unable to generate charts. ${String(error.message || error).trim().split("\n").pop()}`, true);
+      if (study === "grr") {
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "secondary";
+        retry.textContent = "Retry charts";
+        retry.addEventListener("click", async () => {
+          setBusy(true);
+          try { await generateCharts(); } finally { setBusy(false); }
+        });
+        chartContent.replaceChildren(retry);
+      }
     } finally {
       dropGlobal("selected_report");
-      setBusy(false);
     }
-  });
-  container.appendChild(button);
+  }
+  if (study === "grr") {
+    await generateCharts();
+  } else {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = "Show full report";
+    button.addEventListener("click", async () => {
+      setBusy(true);
+      try { await generateCharts(); } finally { setBusy(false); }
+    });
+    container.appendChild(button);
+  }
 }
 async function renderReport() {
   const selected = element("report").value;
@@ -256,7 +285,7 @@ async function renderReport() {
     }
     addExport("Download data", "data", study === "grr" ? "gage rr data.txt" : "paired data.txt", "text/tab-separated-values;charset=utf-8");
     addExport("Download dashboard HTML", "dashboard", study === "grr" ? "Gage_RR_Dashboard.html" : "Paired_T_Test_Dashboard.html", "text/html;charset=utf-8");
-    addChartPreview();
+    await addChartPreview();
   }
   if (!overview.numeric) addExport("Download all reports (.zip)", "zip", study === "grr" ? "Gage_RR_HTML_Reports.zip" : "Paired_T_Test_HTML_Reports.zip", "application/zip", true);
 }
