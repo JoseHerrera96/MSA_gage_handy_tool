@@ -70,6 +70,79 @@ def close_tray_menu(process_id: int) -> None:
     raise RuntimeError("Tray context menu did not open")
 
 
+def close_owned_browser_window(process_id: int) -> None:
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    class ProcessEntry(ctypes.Structure):
+        _fields_ = [
+            ("size", ctypes.c_ulong), ("usage", ctypes.c_ulong), ("process_id", ctypes.c_ulong),
+            ("heap_id", ctypes.c_size_t), ("module_id", ctypes.c_ulong), ("threads", ctypes.c_ulong),
+            ("parent_id", ctypes.c_ulong), ("priority", ctypes.c_long), ("flags", ctypes.c_ulong),
+            ("executable", ctypes.c_wchar * 260),
+        ]
+
+    kernel32.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+    kernel32.Process32FirstW.argtypes = [ctypes.c_void_p, ctypes.POINTER(ProcessEntry)]
+    kernel32.Process32NextW.argtypes = [ctypes.c_void_p, ctypes.POINTER(ProcessEntry)]
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    user32.PostMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t]
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        snapshot = kernel32.CreateToolhelp32Snapshot(2, 0)
+        if snapshot == ctypes.c_void_p(-1).value:
+            raise OSError("Unable to enumerate browser processes")
+        children = set()
+        try:
+            entry = ProcessEntry(size=ctypes.sizeof(ProcessEntry))
+            more = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+            while more:
+                if entry.parent_id == process_id and entry.executable.lower() in {"msedge.exe", "chrome.exe"}:
+                    children.add(entry.process_id)
+                more = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+        finally:
+            kernel32.CloseHandle(snapshot)
+
+        windows = []
+
+        @callback_type
+        def find_window(handle, unused):
+            owner = ctypes.c_ulong()
+            user32.GetWindowThreadProcessId(handle, ctypes.byref(owner))
+            if owner.value in children and user32.IsWindowVisible(handle):
+                name = ctypes.create_unicode_buffer(256)
+                user32.GetClassNameW(handle, name, len(name))
+                if name.value == "Chrome_WidgetWin_1":
+                    windows.append(handle)
+            return True
+
+        user32.EnumWindows(find_window, 0)
+        if windows:
+            user32.PostMessageW(windows[0], 0x0010, 0, 0)
+            return
+        threading.Event().wait(0.2)
+    raise TimeoutError("App-owned browser window did not appear")
+
+
+def verify_window_close(executable: Path, environment: dict) -> None:
+    process = subprocess.Popen([str(executable)], cwd=tempfile.gettempdir(), env=environment)
+    try:
+        port = wait_for_port(process)
+        close_owned_browser_window(process.pid)
+        if process.wait(timeout=30) != 0:
+            raise RuntimeError("Launcher failed after closing its app window")
+        with socket.socket() as connection:
+            connection.settimeout(1)
+            if connection.connect_ex(("127.0.0.1", port)) == 0:
+                raise RuntimeError("Server remained open after closing the app window")
+        print("Closing the app window stopped the launcher and server")
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=10)
+
+
 def verify_tray_source(executable: Path, environment: dict) -> None:
     with tempfile.TemporaryDirectory(prefix="msa-tray-source-check-") as temporary:
         directory = Path(temporary)
@@ -127,6 +200,8 @@ def main() -> None:
             process.wait(timeout=10)
     if arguments.verify_tray_source:
         verify_tray_source(executable, environment)
+    if not arguments.tray_only:
+        verify_window_close(executable, environment)
 
 
 if __name__ == "__main__":

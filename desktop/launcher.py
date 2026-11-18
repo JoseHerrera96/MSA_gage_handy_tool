@@ -3,8 +3,8 @@ from __future__ import annotations
 import ctypes
 import subprocess
 import sys
+import tempfile
 import threading
-import webbrowser
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -70,14 +70,16 @@ def app_browsers() -> list[Path]:
     return browsers
 
 
-def open_app_window(url: str) -> bool:
+def open_app_window(url: str, profile_directory: Path) -> subprocess.Popen | None:
     for browser in app_browsers():
         try:
-            subprocess.Popen([str(browser), f"--app={url}"])
-            return True
+            return subprocess.Popen([
+                str(browser), f"--app={url}", f"--user-data-dir={profile_directory}",
+                "--disable-background-mode", "--no-first-run",
+            ])
         except OSError:
             continue
-    return webbrowser.open(url)
+    return None
 
 
 def main() -> None:
@@ -90,13 +92,24 @@ def main() -> None:
         return
 
     url = f"http://127.0.0.1:{server.server_port}/app"
+    profile = tempfile.TemporaryDirectory(prefix="msa-browser-", ignore_cleanup_errors=True)
+    browser_process = None
 
     def open_browser(icon=None, item=None) -> None:
+        nonlocal browser_process
         try:
-            if not open_app_window(url):
-                show_error(f"No se pudo abrir el navegador. Abre esta direccion:\n{url}")
+            process = open_app_window(url, Path(profile.name))
+            if process is None:
+                show_error("No se pudo abrir la aplicacion. Instala Microsoft Edge o Google Chrome.")
+                if browser_process is None:
+                    icon.stop()
+            elif browser_process is None:
+                browser_process = process
+                threading.Thread(target=lambda: (process.wait(), icon.stop()), daemon=True).start()
         except Exception:
-            show_error(f"No se pudo abrir el navegador. Abre esta direccion:\n{url}")
+            show_error("No se pudo abrir la ventana de la aplicacion.")
+            if browser_process is None:
+                icon.stop()
 
     def stop(icon, item) -> None:
         icon.stop()
@@ -108,7 +121,7 @@ def main() -> None:
             show_error(f"No se pudo mostrar el icono de la aplicacion:\n{error}")
             icon.stop()
             return
-        open_browser()
+        open_browser(icon)
 
     try:
         icon = pystray.Icon("msa-handy-tool", tray_image(), "MSA Handy Tool", menu=pystray.Menu(
@@ -121,6 +134,10 @@ def main() -> None:
     finally:
         server.shutdown()
         server.server_close()
+        if browser_process is not None and browser_process.poll() is None:
+            browser_process.terminate()
+            browser_process.wait()
+        profile.cleanup()
 
 
 if __name__ == "__main__":

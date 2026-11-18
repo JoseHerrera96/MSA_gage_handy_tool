@@ -8,14 +8,13 @@ Data Tracer delivers Measurement System Analysis (MSA) workflows for Type 1 Gage
 
 Download and extract the ZIP, then open `MSA-Handy-Tool.exe`. Keep the
 `_internal` folder alongside the executable. The beta targets Windows 10 and
-11 (64-bit) and has been tested on Windows 11. It requires a compatible browser,
+11 (64-bit) and has been tested on Windows 11. It requires Microsoft Edge or Google Chrome,
 but does not require Python or an internet connection to run the study pages.
 
-The app starts a loopback-only server and opens an Edge or Chrome app window;
-if neither is available, it opens the default browser normally. To reopen the
-window or stop the server, right-click the MSA Handy Tool notification-area
-icon and choose **Abrir aplicacion** or **Cerrar servidor**. Closing the window
-alone does not stop the server.
+The app starts a loopback-only server and opens an Edge or Chrome app window
+in a temporary browser profile. Closing the last app window stops the server
+and exits the application. The MSA Handy Tool notification-area icon also
+provides **Abrir aplicacion** and **Cerrar servidor** commands.
 
 This is an unsigned experimental build, so Windows may display a security
 warning. The browser workflows do not yet match every Streamlit interaction,
