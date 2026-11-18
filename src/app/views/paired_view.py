@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.components.alerts import show_processing_error
 from app.components.input_examples import render_input_examples
+from gage_tracer.presentation import format_float_columns, format_numeric_value
 from app.support import (
     build_minitab_summary_comments,
     build_paired_ttest_overview_dataframe,
@@ -210,7 +211,7 @@ def render_paired_page() -> None:
                                 ).sum()
                             ),
                         )
-                        st.dataframe(overview, use_container_width=True, hide_index=True)
+                        st.dataframe(format_float_columns(overview), hide_index=True)
                         st.caption(
                             "Holm-adjusted p-values account for testing multiple characteristics. "
                             "No significant difference detected is not evidence that the systems are equivalent."
@@ -273,11 +274,11 @@ def render_paired_page() -> None:
         return
 
     p_value = float(metrics["P_Value"])
-    p_value_label = f"{p_value:.6f}"
+    p_value_label = format_numeric_value(p_value)
     alpha_comparison = f"p {'<' if p_value < 0.05 else '>'} 0.05"
 
     with st.expander("Paired observations preview", expanded=False):
-        st.dataframe(paired_df.head(10), use_container_width=True, hide_index=True)
+        st.dataframe(format_float_columns(paired_df).head(10), hide_index=True)
         if len(paired_df) > 10:
             st.caption(f"Showing the first 10 of {len(paired_df)} paired observations.")
         if "System_A_Source_Line" in paired_df.columns:
@@ -287,8 +288,8 @@ def render_paired_page() -> None:
         st.markdown("#### Key results")
         result_cols = st.columns(4)
         result_cols[0].metric("Sample size", int(metrics["N"]))
-        result_cols[1].metric("Mean difference", f"{float(metrics['Mean_D']):+.6g}")
-        result_cols[2].metric("T-Statistic", f"{float(metrics['T_Value']):.4f}")
+        result_cols[1].metric("Mean difference", format_numeric_value(metrics['Mean_D']))
+        result_cols[2].metric("T-Statistic", format_numeric_value(metrics['T_Value']))
         result_cols[3].metric("P-Value", p_value_label)
 
     if p_value < 0.05:
@@ -363,7 +364,7 @@ def render_paired_page() -> None:
             if diagnostics["Outlier_Count"]:
                 st.warning(f"{int(diagnostics['Outlier_Count'])} severe outlier(s) detected (> 3σ).")
                 st.dataframe(
-                    paired_outliers_dataframe(paired_df, diagnostics["Outlier_Positions"]),
+                    format_float_columns(paired_outliers_dataframe(paired_df, diagnostics["Outlier_Positions"])),
                     use_container_width=True,
                     hide_index=True,
                 )

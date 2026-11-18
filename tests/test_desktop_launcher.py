@@ -202,7 +202,7 @@ class DesktopServerTests(unittest.TestCase):
             port = server.server_port
             self.assertEqual(server.server_address[0], "127.0.0.1")
             try:
-                for path, expected in (("/app", 200), ("/type1", 200), ("/grr", 200), ("/paired", 200), ("/runtime-config.json", 200), ("/", 404), ("/baseline.json", 404), ("/data/private/example.txt", 404)):
+                for path, expected in (("/app", 200), ("/app-icon.png", 200), ("/type1", 200), ("/grr", 200), ("/paired", 200), ("/runtime-config.json", 200), ("/", 404), ("/baseline.json", 404), ("/data/private/example.txt", 404)):
                     with self.subTest(path=path):
                         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
                         connection.request("GET", path)
@@ -211,6 +211,9 @@ class DesktopServerTests(unittest.TestCase):
                         if path == "/app":
                             self.assertNotIn("cdn.jsdelivr.net", response.getheader("Content-Security-Policy"))
                             self.assertIn(b"Measurement System Analysis", response.read())
+                        if path == "/app-icon.png":
+                            self.assertEqual(response.getheader("Content-Type"), "image/png")
+                            self.assertTrue(response.read().startswith(b"\x89PNG\r\n\x1a\n"))
                         if path in {"/type1", "/grr", "/paired"}:
                             content = response.read()
                             self.assertNotIn(b"Local analysis", content)

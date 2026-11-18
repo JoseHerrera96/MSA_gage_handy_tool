@@ -9,12 +9,12 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 if not getattr(sys, "frozen", False):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 
-from browser_poc_server import ProofHandler, ROOT, validate_pyodide_runtime
+from browser_poc_server import ProofHandler, ROOT, app_icon, validate_pyodide_runtime
 
 
 def start_server(runtime_directory: Path) -> ThreadingHTTPServer:
@@ -44,11 +44,7 @@ def start_server(runtime_directory: Path) -> ThreadingHTTPServer:
 
 
 def tray_image() -> Image.Image:
-    image = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((4, 4, 124, 124), radius=25, fill="#202124")
-    draw.line([(24, 94), (24, 36), (64, 77), (104, 36), (104, 94)], fill="#f58220", width=12, joint="curve")
-    return image.resize((64, 64), Image.Resampling.LANCZOS)
+    return app_icon().resize((64, 64), Image.Resampling.LANCZOS)
 
 
 def show_error(message: str) -> None:

@@ -22,7 +22,7 @@ from gage_tracer.paired_ttest import (
     parse_paired_unstructured_measurements,
     calculate_paired_ttest_metrics,
 )
-from gage_tracer.presentation import build_type1_summary
+from gage_tracer.presentation import build_type1_summary, format_float_columns
 
 
 INPUT_EXAMPLES = Path(__file__).resolve().parents[1] / "data" / "examples" / "input_modes"
@@ -112,7 +112,10 @@ class SyntheticFixtureTests(unittest.TestCase):
                     else:
                         pd.testing.assert_frame_equal(assignments, expected)
                     self.assertEqual(len(result["results"]), 1)
-                    self.assertEqual(grr_detail(result, next(iter(result["results"])))["data"]["data"], frame.to_dict(orient="split")["data"])
+                    self.assertEqual(
+                        grr_detail(result, next(iter(result["results"])))["data"]["data"],
+                        format_float_columns(frame).to_dict(orient="split")["data"],
+                    )
 
         with self.assertRaises(ValueError):
             analyze_grr([], "periodic", "parts")

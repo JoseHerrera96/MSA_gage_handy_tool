@@ -5,13 +5,35 @@ import hashlib
 import importlib
 import json
 import sys
+from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlsplit
+
+from PIL import Image, ImageDraw
 
 ROOT = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
 PYODIDE_VERSION = "0.27.7"
 CDN_RUNTIME = f"https://cdn.jsdelivr.net/pyodide/v{PYODIDE_VERSION}/full/"
+
+
+def app_icon() -> Image.Image:
+  image = Image.new("RGBA", (256, 256), (0, 0, 0, 0))
+  draw = ImageDraw.Draw(image)
+  draw.rounded_rectangle((8, 8, 248, 248), radius=52, fill="#202124")
+  draw.line([(46, 187), (46, 72), (128, 150), (210, 72), (210, 187)], fill="#f58220", width=24, joint="curve")
+  draw.line([(86, 207), (170, 207)], fill="#79c9ba", width=8)
+  return image.resize((128, 128), Image.Resampling.LANCZOS)
+
+
+@lru_cache(maxsize=1)
+def app_icon_png() -> bytes:
+  buffer = BytesIO()
+  app_icon().save(buffer, format="PNG")
+  return buffer.getvalue()
+
+
 SOURCES = {
     f"/src/gage_tracer/{name}.py": ROOT / "src" / "gage_tracer" / f"{name}.py"
     for name in (
@@ -151,6 +173,8 @@ class ProofHandler(BaseHTTPRequestHandler):
         elif path == "/app":
           body = (ROOT / "tests" / "browser_app.html").read_bytes()
           content_type = "text/html; charset=utf-8"
+        elif path == "/app-icon.png":
+          body, content_type = app_icon_png(), "image/png"
         elif path == "/browser-app.js":
           body = (ROOT / "tests" / "browser_app.js").read_bytes()
           content_type = "text/javascript; charset=utf-8"
@@ -193,7 +217,7 @@ class ProofHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         if path in {"/app", "/type1", "/grr", "/paired"}:
           external = "" if self.runtime_directory else " https://cdn.jsdelivr.net"
-          self.send_header("Content-Security-Policy", f"default-src 'none'; script-src 'self'{external} 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'self'{external} blob:; style-src 'unsafe-inline'; img-src data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'")
+          self.send_header("Content-Security-Policy", f"default-src 'none'; script-src 'self'{external} 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'self'{external} blob:; style-src 'unsafe-inline'; img-src 'self' data: blob:; object-src 'none'; base-uri 'none'; form-action 'none'")
         self.end_headers()
         self.wfile.write(body)
 

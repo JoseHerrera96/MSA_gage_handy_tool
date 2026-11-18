@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from gage_tracer.data_parser import normalize_custom_report_markers, transform_raw_data
-from gage_tracer.presentation import build_type1_summary, format_type1_dataframe, metric_status
+from gage_tracer.presentation import build_type1_summary, format_numeric_value, format_type1_dataframe, metric_status
 from gage_tracer.study_config import TYPE1_CAPABILITY_THRESHOLD
 from gage_tracer.visualization import create_dashboard
 
@@ -38,8 +38,8 @@ def analyze_type1(text: str, report_format: str, start_marker: str = "", end_mar
         "observations": sorted(int(count) for count in summary_frame["Observations"].unique()),
         "metrics": {
             "dimensions": total,
-            "mean_cg": f"{mean_cg:.3f}",
-            "mean_cgk": f"{mean_cgk:.3f}",
+            "mean_cg": format_numeric_value(mean_cg),
+            "mean_cgk": format_numeric_value(mean_cgk),
             "cg_status": metric_status(mean_cg, TYPE1_CAPABILITY_THRESHOLD),
             "cgk_status": metric_status(mean_cgk, TYPE1_CAPABILITY_THRESHOLD),
             "pass_rate": f"{accepted}/{total} ({accepted * 100 / total:.0f}%)",
