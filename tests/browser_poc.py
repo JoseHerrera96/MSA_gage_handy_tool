@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import base64
 import json
 import math
@@ -26,16 +25,13 @@ from gage_tracer.paired_ttest import (
     create_paired_ttest_html_zip,
     parse_paired_periodic_multicharacteristic_measurements,
 )
+from gage_tracer.input_examples import build_input_examples
 from gage_tracer.presentation import build_type1_summary
 from gage_tracer.visualization import create_dashboard, create_gage_rr_html_zip
 
 
 def load_examples():
-    path = ROOT / "src" / "app" / "components" / "input_examples.py"
-    spec = importlib.util.spec_from_file_location("browser_poc_examples", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module.build_input_examples
+    return build_input_examples
 
 
 def serializable(value):

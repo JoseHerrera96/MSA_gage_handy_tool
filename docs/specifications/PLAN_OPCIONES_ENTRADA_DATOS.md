@@ -180,11 +180,10 @@ observaciones`. Ejemplo: `10 observaciones por sistema · 10 pares`.
 
 ## 4. Arquitectura propuesta
 
-- `src/app/main.py`: organiza el flujo de estudios y delega cada vista,
-	separando el estado por modalidad.
-- `src/app/views/grr_view.py`: presenta la selección de distribución y
-	separación, instrucciones, cargas y conteo de reportes/características
-	detectados; construye las cargas con claves distintas por formato y modo.
+- `tests/browser_app.js`: organiza el flujo de estudios y separa el estado por modalidad.
+- `tests/msa_browser_poc.js`: presenta la selección de distribución y separación,
+	instrucciones, cargas y conteo de reportes/características detectados; entrega
+	los datos al adaptador Python sin compartirlos con el servidor.
 - `src/gage_tracer/data_parser.py`: implementa o extiende parsers por modalidad,
 	valida entradas y las convierte a estructuras normalizadas. No contiene UI ni
 	cálculos estadísticos.
@@ -192,8 +191,8 @@ observaciones`. Ejemplo: `10 observaciones por sistema · 10 pares`.
 	GRR y cantidades, evitando repetir constantes entre UI, parser y pruebas.
 - `src/gage_tracer/calculations.py` y `paired_ttest.py`: consumen datos
 	normalizados. Solo se modifican si un contrato nuevo lo requiere.
-- `cli/`: mantiene compatibilidad con sus flujos actuales. La primera entrega
-	puede ampliar Streamlit sin rediseñar las opciones de línea de comandos.
+- `cli/`: mantiene compatibilidad con sus flujos actuales sin duplicar la
+	lógica estadística.
 - `tests/`: cubre parsers y la integración normalización → cálculo.
 
 La interfaz debe indicar el modo seleccionado al parser. La autodetección se
@@ -250,7 +249,7 @@ formatos nuevos ambiguos.
 - Comprobar que el mismo estudio sintético en modalidades equivalentes produce
 	las mismas filas normalizadas y resultados.
 - Probar cambio de estudio/modalidad, número de archivos, preview, errores y
-	descargas en Streamlit.
+	descargas en el navegador.
 - Ejecutar la suite actual y preservar los formatos existentes.
 
 **Entrega:** cobertura automatizada y regresiones detectables.
@@ -259,8 +258,8 @@ formatos nuevos ambiguos.
 
 - Actualizar README y guías de cada estudio con cantidades y ejemplos por modo.
 - Añadir plantillas sintéticas, sin datos de producción.
-- Probar ejemplos completos en Streamlit y los flujos actuales compatibles en
-	CLI.
+- Probar ejemplos completos en el navegador y los flujos actuales compatibles
+	en CLI.
 
 **Entrega:** instrucciones coherentes con interfaz y parser.
 
@@ -298,8 +297,8 @@ formatos nuevos ambiguos.
 	una y varias características; rechazar ciclos ambiguos.
 5. Si etiquetas explícitas de pieza/operador contradicen el modo elegido,
 	 ¿prevalecen las etiquetas o se rechaza el archivo?
-6. ¿La primera entrega amplía solo Streamlit o también añade argumentos CLI
-	 para los modos de varios archivos?
+6. ¿La primera entrega añade los modos de varios archivos al navegador, a la
+	 CLI o a ambos?
 
 ## 8. Orden recomendado
 

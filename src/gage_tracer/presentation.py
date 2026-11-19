@@ -1,6 +1,6 @@
-"""Pure presentation adapters for the Streamlit application.
+"""Pure presentation adapters for reports and browser interfaces.
 
-These helpers format domain results for display without importing Streamlit.
+These helpers format domain results for display without importing UI frameworks.
 That keeps the UI layer thin and makes formatting behavior directly testable.
 """
 

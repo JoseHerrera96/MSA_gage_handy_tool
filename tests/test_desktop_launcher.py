@@ -64,7 +64,8 @@ class DesktopServerTests(unittest.TestCase):
         profile = Path("isolated-profile")
         with patch.object(launcher, "app_browsers", return_value=[Path("edge.exe"), Path("chrome.exe")]), patch.object(launcher.subprocess, "Popen", side_effect=[OSError("unavailable"), process]) as run:
             self.assertIs(launcher.open_app_window(url, profile), process)
-            self.assertEqual(run.call_args_list[0].args[0], ["edge.exe", f"--app={url}", f"--user-data-dir={profile}", "--disable-background-mode", "--no-first-run"])
+            self.assertEqual(run.call_args_list[0].args[0], ["edge.exe", f"--app={url}", f"--user-data-dir={profile}", "--new-window", "--disable-background-mode", "--disable-default-apps", "--no-first-run", "--no-default-browser-check"])
+            self.assertNotIn("--remote-debugging-port", " ".join(run.call_args_list[0].args[0]))
             self.assertEqual(run.call_args_list[1].args[0][0], "chrome.exe")
         with patch.object(launcher, "app_browsers", return_value=[]):
             self.assertIsNone(launcher.open_app_window(url, profile))
@@ -81,14 +82,30 @@ class DesktopServerTests(unittest.TestCase):
         tray.Icon.return_value = icon
         tray.Menu.side_effect = lambda *items: items
         tray.MenuItem.side_effect = lambda text, action, **kwargs: (text, action)
-        with patch.dict(sys.modules, {"pystray": tray}), patch.object(launcher, "start_server", return_value=server), patch.object(launcher, "open_app_window", return_value=process), patch.object(launcher.threading, "Thread") as thread:
+        with patch.dict(sys.modules, {"pystray": tray}), patch.object(launcher, "start_server", return_value=server), patch.object(launcher, "open_app_window", return_value=process), patch.object(launcher, "wait_for_browser_exit", side_effect=lambda current_icon, pid, existing: (pid.append(4321), current_icon.stop())), patch.object(launcher, "close_browser_process") as close_browser, patch.object(launcher.threading, "Thread") as thread:
             icon.run.side_effect = lambda setup: setup(icon)
             launcher.main()
-            thread.call_args.kwargs["target"]()
-        process.wait.assert_called_once()
+            target = thread.call_args.kwargs["target"]
+            args = thread.call_args.kwargs["args"]
+            target(*args)
+        close_browser.assert_called_once_with([4321])
         icon.stop.assert_called_once()
         server.shutdown.assert_called_once()
         server.server_close.assert_called_once()
+
+    def test_browser_launcher_handoff_does_not_stop_running_app(self) -> None:
+        from unittest.mock import MagicMock
+        import launcher
+
+        icon = MagicMock()
+        browser_pid = []
+        with patch.object(launcher, "visible_app_windows", return_value=[(111, 4321)]), \
+             patch.object(launcher.ctypes.windll.user32, "IsWindow", return_value=True), \
+             patch.object(launcher.time, "sleep", side_effect=RuntimeError("monitor probe")):
+            with self.assertRaisesRegex(RuntimeError, "monitor probe"):
+                launcher.wait_for_browser_exit(icon, browser_pid, set())
+        self.assertEqual(browser_pid, [4321])
+        icon.stop.assert_not_called()
 
     def test_tray_failure_stops_server(self):
         from unittest.mock import MagicMock

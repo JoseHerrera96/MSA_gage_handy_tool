@@ -8,7 +8,8 @@ description: 'Validate crossed Gage R&R study designs and report assignments. Us
 ## Procedure
 
 1. Inspect `GRR_DESIGN` in `src/gage_tracer/study_config.py` and the current
-   parsing and assignment paths in `data_parser.py` and `src/app/views/grr_view.py`.
+   parsing, browser-adapter, and assignment paths in `tests/msa_browser_poc.js`
+   and `tests/grr_browser_poc.py`.
    Do not assume the fixed design cannot change in a future version.
 2. For the current design, verify 10 parts, 3 operators, 3 trials per
    part-operator pair, and 90 reports. Check characteristic completeness and

@@ -2,8 +2,6 @@ import math
 from io import BytesIO, StringIO
 from pathlib import Path
 import unittest
-from unittest.mock import MagicMock, patch
-from zipfile import ZipFile
 
 import pandas as pd
 
@@ -263,52 +261,21 @@ class SyntheticFixtureTests(unittest.TestCase):
         for name in ("001_Paired_T_Test_Diameter.html", "002_Paired_T_Test_Height.html"):
             self.assertEqual(len(result["paired"]["archive"][name]["images"]), 7)
 
-    def test_examples_ui_updates_selection_and_zip(self) -> None:
-        from app.components.input_examples import render_input_examples
+    def test_generated_examples_include_expected_custom_and_grouped_files(self) -> None:
+        from gage_tracer.input_examples import build_input_examples
 
-        streamlit = MagicMock()
-        streamlit.session_state = {}
-        streamlit.button.return_value = True
-        streamlit.selectbox.side_effect = lambda label, names, **kwargs: names[-1]
-        render_input_examples(streamlit, "grr", "custom", "parts")
-        self.assertTrue(streamlit.session_state["grr_examples_open"])
-        self.assertIn("REPORT", streamlit.code.call_args.args[0])
-        self.assertTrue(any("REPORT" in call.args[0] for call in streamlit.caption.call_args_list))
-        selected_download, zip_download = streamlit.download_button.call_args_list
-        self.assertEqual(selected_download.kwargs["file_name"], "part_10.txt")
-        with ZipFile(BytesIO(zip_download.args[1])) as archive:
-            self.assertEqual(len(archive.namelist()), 10)
-            self.assertIn("part_10.txt", archive.namelist())
-            self.assertIn(b"REPORT", archive.read("part_10.txt"))
+        custom_parts = build_input_examples("grr", "custom", "parts")
+        self.assertEqual(len(custom_parts), 10)
+        self.assertIn("part_10.txt", custom_parts)
+        self.assertIn("REPORT", custom_parts["part_10.txt"])
 
-        streamlit.reset_mock()
-        streamlit.button.return_value = False
-        render_input_examples(streamlit, "grr", "periodic", "operators")
-        self.assertNotIn("REPORT", streamlit.code.call_args.args[0])
-        self.assertEqual(streamlit.download_button.call_args_list[0].kwargs["file_name"], "operator_03.txt")
-        with ZipFile(BytesIO(streamlit.download_button.call_args_list[1].args[1])) as archive:
-            self.assertEqual(len(archive.namelist()), 3)
-
-    def test_examples_are_available_in_each_study_view(self) -> None:
-        from streamlit.testing.v1 import AppTest
-
-        app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "MSA_app.py"), default_timeout=20).run()
-        app.button(key="type1_examples_button").click().run()
-        self.assertIn(':BEGIN', app.code[0].value)
-        app.radio(key="type1_input_format").set_value("Periodic reports without markers").run()
-        self.assertNotIn(':BEGIN', app.code[0].value)
-        app.button(key="paired_btn").click().run()
-        app.radio(key="paired_input_mode").set_value("Customized").run()
-        app.button(key="paired_examples_button").click().run()
-        self.assertIn("REPORT", app.code[0].value)
-        app.button(key="grr_btn").click().run()
-        app.radio(key="grr_input_mode").set_value("3 files · one per operator").run()
-        app.button(key="grr_examples_button").click().run()
-        self.assertEqual(app.selectbox(key="grr_example_file_operators").value, "operator_01.txt")
-        self.assertEqual(len(app.exception), 0)
+        periodic_operators = build_input_examples("grr", "periodic", "operators")
+        self.assertEqual(len(periodic_operators), 3)
+        self.assertIn("operator_03.txt", periodic_operators)
+        self.assertNotIn("REPORT", periodic_operators["operator_03.txt"])
 
     def test_generated_type1_and_paired_examples_match_across_formats(self) -> None:
-        from app.components.input_examples import build_input_examples
+        from gage_tracer.input_examples import build_input_examples
 
         type1_reference = None
         paired_reference = None
@@ -346,7 +313,7 @@ class SyntheticFixtureTests(unittest.TestCase):
                     self.assertEqual(paired_reference, measurements)
 
     def test_generated_grr_examples_preserve_design_assignments(self) -> None:
-        from app.components.input_examples import build_input_examples
+        from gage_tracer.input_examples import build_input_examples
 
         reference = None
         for report_format in ("blocks", "periodic", "custom"):
@@ -450,47 +417,3 @@ class SyntheticFixtureTests(unittest.TestCase):
         for characteristic in structured:
             self.assertEqual(structured[characteristic]["system_a"], custom_tabular[characteristic]["system_a"])
             self.assertEqual(structured[characteristic]["system_b"], custom_tabular[characteristic]["system_b"])
-
-    def test_paired_custom_view_passes_marker_configuration_to_parser(self) -> None:
-        from app.views import paired_view
-
-        streamlit = MagicMock()
-        streamlit.radio.return_value = "Customized"
-        streamlit.columns.side_effect = lambda count: [MagicMock() for _ in range(count)]
-        streamlit.text_input.return_value = "REPORT"
-        file_a = MagicMock(name="system_a")
-        file_a.name = "system_a.txt"
-        file_a.getvalue.return_value = b"REPORT\n1\nREPORT"
-        file_b = MagicMock(name="system_b")
-        file_b.name = "system_b.txt"
-        file_b.getvalue.return_value = b"REPORT\n2\nREPORT"
-        streamlit.file_uploader.side_effect = [file_a, file_b]
-        with patch.object(paired_view, "st", streamlit), \
-             patch.object(paired_view, "parse_paired_custom_measurements", side_effect=ValueError("probe")) as parser, \
-             patch.object(paired_view, "show_processing_error"):
-            paired_view.render_paired_page()
-
-        self.assertEqual(parser.call_count, 1)
-        self.assertEqual(parser.call_args.args[2:], ("REPORT", "REPORT"))
-
-    def test_paired_view_routes_periodic_tabular_rows_by_characteristic(self) -> None:
-        from app.views import paired_view
-
-        for mode in ("Periodic reports without markers", "BEGIN/END markers"):
-            with self.subTest(mode=mode):
-                streamlit = MagicMock()
-                streamlit.radio.return_value = mode
-                streamlit.columns.side_effect = lambda count: [MagicMock() for _ in range(count)]
-                file_a = MagicMock(name="system_a")
-                file_a.name = "system_a.txt"
-                file_a.getvalue.return_value = b"C1\t1.1\t1\t0.1\t-0.1\nC1\t1.2"
-                file_b = MagicMock(name="system_b")
-                file_b.name = "system_b.txt"
-                file_b.getvalue.return_value = b"C1\t1.0\nC1\t1.1\t1\t0.1\t-0.1"
-                streamlit.file_uploader.side_effect = [file_a, file_b]
-                with patch.object(paired_view, "st", streamlit), \
-                     patch.object(paired_view, "parse_paired_periodic_multicharacteristic_measurements", wraps=paired_view.parse_paired_periodic_multicharacteristic_measurements) as parser, \
-                     patch.object(paired_view, "calculate_paired_ttest_metrics", side_effect=ValueError("probe")), \
-                     patch.object(paired_view, "show_processing_error"):
-                    paired_view.render_paired_page()
-                self.assertEqual(parser.call_count, 1)

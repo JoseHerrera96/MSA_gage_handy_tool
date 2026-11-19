@@ -17,18 +17,17 @@ and exits the application. The MSA Handy Tool notification-area icon also
 provides **Abrir aplicacion** and **Cerrar servidor** commands.
 
 This is an unsigned experimental build, so Windows may display a security
-warning. The browser workflows do not yet match every Streamlit interaction,
-and validation with representative real inputs remains necessary. Stopping the
-server does not delete downloaded reports or securely erase browser memory.
+warning. Validation with representative real inputs remains necessary. Stopping
+the server does not delete downloaded reports or securely erase browser memory.
 
 ## Repository Overview
 
-- `MSA_app.py` — Canonical Streamlit launcher for interactive MSA workflows.
+- `desktop/launcher.py` — Windows launcher and loopback-only browser server.
 - `cli/command.py` — Unified `msa` CLI with `type1`, `grr`, and `paired` subcommands.
 - `cli/Type_1_gage_handy_tool.py`, `cli/Paired_T_Test_tool.py`,
   `cli/Gage_RR_tool.py` — Legacy entry points retained for compatibility.
-- `src/app/` — Streamlit application package with its workflow views and shared components.
-- `src/gage_tracer/` — Core library with parsing, calculation, and dashboard rendering.
+- `tests/browser_app.*` and `tests/*browser_poc.*` — Browser UI, adapters, server, and validation harness.
+- `src/gage_tracer/` — Core library with parsing, calculation, examples, and dashboard rendering.
 - `data/examples/` — Versioned synthetic example inputs.
 - `data/private/` — Ignored location for confidential local input data.
 - `outputs/` — Ignored generated analysis files.
@@ -43,8 +42,7 @@ repository root. Python 3.10 or later is required.
 python -m pip install -e .
 ```
 
-Start the Streamlit interface with `streamlit run MSA_app.py` or the installed
-`msa-app` entry point. The unified `msa` CLI provides three workflows:
+The unified `msa` CLI provides three workflows:
 
 ```powershell
 msa type1 --input data/private/type1-study.txt --output outputs/type1
@@ -52,37 +50,35 @@ msa grr --input data/private/grr-study.txt --report-order operator-major --outpu
 msa paired --system-a data/private/system-a.txt --system-b data/private/system-b.txt --output outputs/paired
 ```
 
-Streamlit processes uploaded files in memory. Active sessions retain their inputs
-for analysis; after a browser disconnects, the configured reconnection window is
-30 seconds. Streamlit subsequently cleans up disconnected sessions and their
-uploads, but this cleanup can be delayed and is not secure memory erasure. It
-does not govern hosting-provider storage, logs, backups, or downloaded reports.
-CLI workflows write their results to disk.
+The desktop browser interface processes selected files in browser memory and
+never posts measurement data to the loopback server. Stopping the application
+releases the browser profile, but this is not a secure-erasure guarantee. CLI
+workflows read inputs and write their results to disk.
 
 Input and output arguments are optional; defaults use examples under
 `data/examples/` and the corresponding directories under `outputs/`.
 
 ## Architecture
 
-The project separates its interfaces, analysis logic, and entry points.
-`src/gage_tracer/` contains the reusable core; `src/app/` and `cli/` coordinate
-the web interface and file-based workflows.
+The project separates its browser interface, analysis logic, and CLI entry points.
+`src/gage_tracer/` contains the reusable core consumed by Pyodide and the file-based workflows.
 
 ```mermaid
 flowchart LR
-		Browser[Browser user] --> Launcher[MSA_app.py]
-		Launcher --> UI[src/app/main.py]
-		UI --> Domain[src/gage_tracer]
-		CLI[CLI scripts] --> Domain
-		Domain --> Data[Normalized data]
-		Domain --> Reports[Text reports and HTML dashboards]
+        Browser[Browser user] --> Launcher[desktop launcher]
+        Launcher --> UI[Browser UI]
+        UI --> Pyodide[Local Pyodide runtime]
+        Pyodide --> Domain[src/gage_tracer]
+        CLI[CLI scripts] --> Domain
+        Domain --> Data[Normalized data]
+        Domain --> Reports[Text reports and HTML dashboards]
 ```
 
 ### Application and analysis modules
 
-- `MSA_app.py` launches Streamlit and imports `main` from `src/app`.
-- `src/app/main.py` coordinates navigation and the three study views;
-  `components/`, `theme.py`, and `assets/styles.css` provide shared UI pieces.
+- `desktop/launcher.py` starts a loopback-only server and opens the browser app.
+- `tests/browser_app.js`, `tests/type1_browser_poc.js`, and
+  `tests/msa_browser_poc.js` coordinate the three browser workflows.
 - `data_parser.py` parses and validates the input formats for each study.
 - `calculations.py` implements Type 1 and crossed Gage R&R calculations,
   including bias, capability indices, variance components, and NDC.
@@ -91,8 +87,7 @@ flowchart LR
 - `visualization.py` and `paired_visualization.py` generate study dashboards.
 - `presentation.py` prepares tables, previews, and presentation states;
   `study_config.py` holds shared study configuration and thresholds.
-- `cli/app.py` launches the packaged Streamlit application; `cli/command.py`
-  exposes the unified command-line interface.
+- `cli/command.py` exposes the unified command-line interface.
 
 The analysis flow is **raw input → parsing and validation → calculations →
 presentation or export**. The user interfaces delegate calculations to the core.
@@ -125,7 +120,7 @@ production measurement data in version control.
 ├── LICENSE
 ├── README.md
 ├── requirements.txt
-├── MSA_app.py
+├── desktop/
 ├── cli/
 │   ├── command.py
 │   ├── __main__.py
@@ -136,7 +131,6 @@ production measurement data in version control.
 ├── docs/
 ├── outputs/
 ├── src/
-│   ├── app/
 │   └── gage_tracer/
 └── tests/
 ```
@@ -145,42 +139,35 @@ production measurement data in version control.
 
 ### Interactive UI
 
-Launch the Streamlit application:
+Use the packaged Windows executable described above, or start the local browser
+server with a local Pyodide distribution:
 
-```bash
-streamlit run MSA_app.py
+```powershell
+python tests/browser_poc_server.py --pyodide-dir "C:\path\to\pyodide"
 ```
 
-or with the selected Python interpreter:
-
-```bash
-python -m streamlit run MSA_app.py
-```
-
-The UI provides:
-- Dark-themed MSA workflow selection
-- In-memory file upload support
-- Live metric panels
-- Exportable HTML dashboards
+Then open `http://127.0.0.1:8765/app`. The interface provides browser-local file
+processing, study navigation, report selectors, metric panels, chart previews,
+and exportable HTML dashboards and ZIP reports.
 
 ### Input Examples
 
-In Streamlit, **View example** shows a synthetic example for the selected study
-and report format. Download the selected text file or, for Paired T and grouped
-Gage R&R, the complete ZIP. Gage R&R examples match the selected file distribution
+In the browser interface, **Download example** creates a synthetic example for the selected study
+and report format. For Paired T and grouped Gage R&R, the complete ZIP is generated.
+Gage R&R examples match the selected file distribution
 and, for a single file, the selected report sequence. The preview shows the first
 24 lines; the download contains the complete data. For customized examples,
 enter `REPORT` in both marker fields.
 
 Ready-to-upload examples in `data/examples/input_modes/` use the same
-measurements across formats. Select the corresponding option in Streamlit:
+measurements across formats. Select the corresponding browser option:
 
 | Study | BEGIN/END markers | Periodic reports without markers | Customized |
 | --- | --- | --- | --- |
 | Type 1 | [blocks.txt](data/examples/input_modes/type1/blocks.txt) | [periodic.txt](data/examples/input_modes/type1/periodic.txt) | [custom.txt](data/examples/input_modes/type1/custom.txt) |
 | Gage R&R | [single.txt](data/examples/input_modes/gage_rr/blocks/single.txt) | [single.txt](data/examples/input_modes/gage_rr/periodic/single.txt) | [single.txt](data/examples/input_modes/gage_rr/custom/single.txt) |
 
-Paired T examples are also available through **View example** in Streamlit.
+Paired T examples are also available through **Download example** in the browser.
 The generated Paired T input-mode files may be absent from a checkout; use the
 generator below if those local files are needed.
 
@@ -222,7 +209,8 @@ asks before clearing selected inputs and results. In characteristic views, Gage
 R&R can show its report chart and normalized observations, while Paired T can
 show its summary, diagnostics and report card inline on demand. Complete HTML
 dashboards remain available as downloads. The browser views do not reproduce
-every Streamlit interaction. These prototypes do not replace the production UI.
+all possible third-party desktop environments. The packaged browser app is the
+primary UI.
 
 By default the pages load Pyodide 0.27.7 from jsDelivr, which can observe the
 connection and IP address. To serve the three study pages locally, obtain the
@@ -313,7 +301,7 @@ output directories with:
 msa type1 --input data/private/type1-study.txt --output outputs/type1
 ```
 
-In Streamlit, the Type 1 workflow offers three input layouts. The existing layout
+In the browser interface, the Type 1 workflow offers three input layouts. The existing layout
 uses one file with complete `BEGIN`/`END` report blocks. The delimiter-free
 layout uses one file with consecutive reports and no required markers. Each
 measurement row must be tab-separated as
@@ -363,9 +351,9 @@ Operator, and Trial labels. The default is `part-major`
 msa grr --input data/private/grr-study.txt --report-order operator-major --output outputs/gage_rr
 ```
 
-The Streamlit workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags. It also asks **How are the reports separated?** and offers **BEGIN/END markers**, **Periodic reports without markers**, or **Customized** for each upload distribution (one file, one per part, or one per operator). In periodic mode, rows retain the characteristic, measurement, nominal, upper-tolerance, and lower-tolerance columns; repeating the first characteristic begins the next report. Customized markers must each occupy their own line; use the same marker in both fields to alternate report boundaries. Text outside marked reports is ignored, and malformed or incomplete report blocks are rejected.
+The browser workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags. It also asks **How are the reports separated?** and offers **BEGIN/END markers**, **Periodic reports without markers**, or **Customized** for each upload distribution (one file, one per part, or one per operator). In periodic mode, rows retain the characteristic, measurement, nominal, upper-tolerance, and lower-tolerance columns; repeating the first characteristic begins the next report. Customized markers must each occupy their own line; use the same marker in both fields to alternate report boundaries. Text outside marked reports is ignored, and malformed or incomplete report blocks are rejected.
 
-Streamlit also supports grouped uploads while keeping the same crossed design:
+The browser also supports grouped uploads while keeping the same crossed design:
 
 - **10 files, one per part:** 9 reports per file; 3 trials for each of the 3 operators.
 - **3 files, one per operator:** 30 reports per file; 3 trials for each of the 10 parts.
@@ -393,7 +381,7 @@ and System B must use the same labels in the same order. A leading UTF-8 BOM
 is accepted in numeric files. The bundled OGP pair has 10 blocks and 8
 characteristics per system, with matching tags and within-block order.
 
-In Streamlit, **Periodic reports without markers** accepts either one finite
+In the browser, **Periodic reports without markers** accepts either one finite
 measurement per line or tab-separated `<characteristic><TAB><measurement>`
 rows. A tabular row may also include nominal, upper tolerance and lower
 tolerance columns; these and other trailing columns are ignored and are not

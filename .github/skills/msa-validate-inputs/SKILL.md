@@ -8,8 +8,8 @@ description: 'Validate MSA input formats and parsers. Use for Type 1, Gage R&R o
 ## Procedure
 
 1. Identify the study, selected input mode, upload distribution, expected
-   output, and any reported error. Inspect the corresponding view and parser in
-   `src/app/views/`, `src/gage_tracer/data_parser.py`, or `paired_ttest.py`.
+   output, and any reported error. Inspect the corresponding browser adapter
+   and parser in `tests/`, `src/gage_tracer/data_parser.py`, or `paired_ttest.py`.
 2. Check the actual contract for `BEGIN/END markers`, periodic inputs, or
    `Customized` markers. For custom inputs confirm whole-line matching, balanced
    blocks, same-marker behavior, and handling of content outside reports.

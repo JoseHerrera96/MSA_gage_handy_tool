@@ -37,11 +37,10 @@ def app_icon_png() -> bytes:
 SOURCES = {
     f"/src/gage_tracer/{name}.py": ROOT / "src" / "gage_tracer" / f"{name}.py"
     for name in (
-        "__init__", "calculations", "data_parser", "paired_ttest",
+        "__init__", "calculations", "data_parser", "input_examples", "paired_ttest",
         "paired_visualization", "presentation", "study_config", "visualization",
     )
 }
-SOURCES["/src/app/components/input_examples.py"] = ROOT / "src" / "app" / "components" / "input_examples.py"
 SOURCES["/tests/browser_poc.py"] = ROOT / "tests" / "browser_poc.py"
 SOURCES["/tests/type1_browser_poc.py"] = ROOT / "tests" / "type1_browser_poc.py"
 SOURCES["/tests/grr_browser_poc.py"] = ROOT / "tests" / "grr_browser_poc.py"
@@ -92,10 +91,10 @@ PAGE = r'''<!doctype html>
 <script type="module">
 import { loadPyodide } from "https://cdn.jsdelivr.net/pyodide/v0.27.7/full/pyodide.mjs";
 const sourcePaths = [
-  "__init__", "calculations", "data_parser", "paired_ttest", "paired_visualization",
+  "__init__", "calculations", "data_parser", "input_examples", "paired_ttest", "paired_visualization",
   "presentation", "study_config", "visualization"
 ].map(name => `/src/gage_tracer/${name}.py`);
-sourcePaths.push("/src/app/components/input_examples.py", "/tests/browser_poc.py");
+sourcePaths.push("/tests/browser_poc.py");
 const status = document.getElementById("status");
 const compare = (expected, actual, path, differences) => {
   if (typeof expected === "number" && typeof actual === "number") {

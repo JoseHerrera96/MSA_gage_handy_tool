@@ -12,6 +12,8 @@ const format = () => root.querySelector('input[name="format"]:checked').value;
 let python;
 let ready = false;
 let urls = [];
+let currentResult;
+let dimensionCharts = new Map();
 let disposed = false;
 onBusyChange(true);
 
@@ -24,6 +26,9 @@ function invalidate() {
   element("results").hidden = true;
   urls.forEach(url => URL.revokeObjectURL(url));
   urls = [];
+  currentResult = undefined;
+  dimensionCharts = new Map();
+  element("report").replaceChildren();
   element("tsv").removeAttribute("href");
   element("html").removeAttribute("href");
   if (ready) setStatus("Ready");
@@ -31,13 +36,35 @@ function invalidate() {
 }
 
 function setBusy(busy) {
-  root.querySelectorAll('input[name="format"], #file, #start-marker, #end-marker').forEach(input => input.disabled = busy);
+  root.querySelectorAll('input[name="format"], #file, #start-marker, #end-marker, #report').forEach(input => input.disabled = busy);
   analyzeButton.disabled = busy || !ready || !fileInput.files.length;
   exampleButton.disabled = busy || !ready;
   onBusyChange(busy);
 }
 
-function render(result) {
+function collectDimensionCharts(html, summary) {
+  const report = new DOMParser().parseFromString(html, "text/html");
+  const images = [...report.querySelectorAll(".detail-card img")];
+  if (images.length !== summary.length) throw new Error(`Expected ${summary.length} dimension charts but found ${images.length}.`);
+  dimensionCharts = new Map(summary.map((item, index) => {
+    const source = images[index].getAttribute("src") || "";
+    if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(source)) throw new Error(`Invalid chart image for ${item["Gage Item"]}.`);
+    return [item["Gage Item"], source];
+  }));
+}
+
+function addDimensionMetric(label, value) {
+  const item = document.createElement("div");
+  item.className = "metric";
+  const term = document.createElement("dt");
+  term.textContent = label;
+  const definition = document.createElement("dd");
+  definition.textContent = String(value);
+  item.append(term, definition);
+  element("dimension-metrics").appendChild(item);
+}
+
+function renderOverview(result) {
   const metrics = result.metrics;
   element("dimensions").textContent = metrics.dimensions;
   element("cg").textContent = metrics.mean_cg;
@@ -71,6 +98,48 @@ function render(result) {
     const tableRow = body.insertRow();
     row.forEach(value => { tableRow.insertCell().textContent = value == null ? "" : String(value); });
   });
+}
+
+function renderDimension(selected) {
+  const summary = currentResult.summary.find(item => item["Gage Item"] === selected);
+  const rowIndex = currentResult.summary.indexOf(summary);
+  const columns = currentResult.table.columns;
+  const row = currentResult.table.data[rowIndex];
+  if (!summary || !row) throw new Error(`No report found for ${selected}.`);
+  element("dimension-heading").textContent = selected;
+  element("dimension-context").textContent = `${summary.Observations} observations`;
+  element("dimension-metrics").replaceChildren();
+  for (const label of ["Reference", "Mean", "StdDev", "Bias", "Cg", "Cgk"]) {
+    addDimensionMetric(label, row[columns.indexOf(label)]);
+  }
+  addDimensionMetric("Verdict", summary.Status);
+  element("dimension-verdict").textContent = summary.Status === "ACCEPT"
+    ? `Cg and Cgk meet the industrial threshold of ${currentResult.metrics.threshold.toFixed(2)}.`
+    : `One or more capability indices fall below the minimum ${currentResult.metrics.threshold.toFixed(2)} threshold.`;
+  element("dimension-verdict").classList.toggle("warning", summary.Status !== "ACCEPT");
+  const image = element("dimension-chart-image");
+  image.src = dimensionCharts.get(selected);
+  image.alt = `Run chart and histogram for ${selected}`;
+  element("dimension-chart").open = true;
+}
+
+function renderReport() {
+  const selected = element("report").value;
+  const isOverview = selected === "__overview__";
+  element("overview").hidden = !isOverview;
+  element("summary").closest("section").hidden = !isOverview;
+  element("dimension-report").hidden = isOverview;
+  if (!isOverview) renderDimension(selected);
+}
+
+function render(result) {
+  currentResult = result;
+  collectDimensionCharts(result.html, result.summary);
+  renderOverview(result);
+  const report = element("report");
+  report.replaceChildren(new Option("Study Overview", "__overview__"));
+  result.summary.forEach(item => report.add(new Option(item["Gage Item"], item["Gage Item"])));
+  renderReport();
   for (const [id, contents, type] of [["tsv", result.tsv, "text/tab-separated-values"], ["html", result.html, "text/html"]]) {
     const url = URL.createObjectURL(new Blob([contents], {type: `${type};charset=utf-8`}));
     urls.push(url);
@@ -85,6 +154,7 @@ root.querySelectorAll('input[name="format"]').forEach(input => input.addEventLis
 }));
 for (const input of [fileInput, startMarker, endMarker]) input.addEventListener("change", invalidate);
 for (const input of [startMarker, endMarker]) input.addEventListener("input", invalidate);
+element("report").addEventListener("change", renderReport);
 
 analyzeButton.addEventListener("click", async () => {
   if (!ready || !fileInput.files.length) return;

@@ -30,8 +30,6 @@ dependencies = [
     "numpy>=1.24",
     "scipy>=1.10",
     "matplotlib>=3.7",
-    "streamlit>=1.25",
-    "watchdog>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -42,7 +40,6 @@ dev = [
 
 [project.scripts]
 msa = "cli.command:main"
-msa-app = "cli.app:main"
 msa-type1 = "cli.Type_1_gage_handy_tool:run"
 msa-paired = "cli.Paired_T_Test_tool:run"
 msa-grr = "cli.Gage_RR_tool:run"
@@ -56,12 +53,8 @@ Issues = "https://github.com/JoseHerrera96/MSA_gage_handy_tool/issues"
 package-dir = {"" = "src", "cli" = "cli"}
 packages = [
     "gage_tracer",
-    "app",
-    "app.components",
-    "app.views",
     "cli",
 ]
 
 [tool.setuptools.package-data]
 "gage_tracer" = ["*.txt", "*.csv"]
-"app" = ["assets/*.css"]

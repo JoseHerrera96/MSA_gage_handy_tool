@@ -89,6 +89,29 @@ def check_case(page, case, filename):
             elif observed != str(value):
                 raise AssertionError("Browser table differs from native Python")
 
+    report = page.locator("#report")
+    options = report.locator("option").all_inner_texts()
+    expected_options = ["Study Overview", *(item["Gage Item"] for item in native["summary"])]
+    if options != expected_options or report.input_value() != "__overview__":
+        raise AssertionError("Type 1 report selector does not start on Study Overview")
+    if not page.locator("#overview").is_visible() or not page.locator("#summary").is_visible():
+        raise AssertionError("Type 1 Study Overview is not visible")
+    for expected in native["summary"]:
+        report.select_option(expected["Gage Item"])
+        if page.locator("#dimension-heading").inner_text() != expected["Gage Item"]:
+            raise AssertionError("Type 1 selected report differs from the requested dimension")
+        chart = page.locator("#dimension-chart")
+        if page.locator("#overview").is_visible() or not chart.evaluate("node => node.open") or not chart.locator("img").is_visible():
+            raise AssertionError("Type 1 individual report chart is not open by default")
+    report.select_option(native["summary"][0]["Gage Item"])
+    chart = page.locator("#dimension-chart")
+    chart.locator("summary").click()
+    if chart.evaluate("node => node.open"):
+        raise AssertionError("Type 1 individual chart did not collapse")
+    chart.locator("summary").click()
+    if not chart.evaluate("node => node.open"):
+        raise AssertionError("Type 1 individual chart did not reopen")
+
     with page.expect_download(timeout=120000) as data_download:
         page.locator("#tsv").click()
     data = data_download.value
@@ -317,10 +340,15 @@ def run_browser(executable, base_url, cases, filename, include_other_studies):
         blocked = []
         requests = []
         sockets = []
+        interrupted_startup = []
 
         def route_request(route):
             url = route.request.url
-            if url.startswith(base_url + "/") or url.startswith("blob:"):
+            parsed_url = urlsplit(url)
+            if parsed_url.path == "/runtime-config.json" and not interrupted_startup:
+                interrupted_startup.append(True)
+                route.abort("failed")
+            elif url.startswith(base_url + "/") or url.startswith("blob:"):
                 route.continue_()
             else:
                 blocked.append(True)
@@ -334,6 +362,8 @@ def run_browser(executable, base_url, cases, filename, include_other_studies):
         page.wait_for_function("document.querySelector('#status').textContent === 'Ready' || document.querySelector('#status').classList.contains('error')", timeout=120000)
         if page.locator("#status").inner_text() != "Ready":
             raise AssertionError("Browser runtime initialization failed")
+        if not interrupted_startup:
+            raise AssertionError("Cold-start interruption was not exercised")
         for case in cases:
             check_case(page, case, filename)
         if include_other_studies:
