@@ -22,7 +22,8 @@ class DesktopServerTests(unittest.TestCase):
             with zipfile.ZipFile(archive_path) as archive:
                 names = archive.namelist()
                 self.assertIn("desktop/launcher.py", names)
-                self.assertIn("tests/browser_poc_server.py", names)
+                self.assertIn("src/web/server.py", names)
+                self.assertIn("src/web/app.html", names)
                 self.assertFalse(any(name.startswith(("data/", "outputs/")) for name in names))
                 for name in names:
                     with self.subTest(source=name):
@@ -132,6 +133,34 @@ class DesktopServerTests(unittest.TestCase):
             (directory / "MSA-Handy-Tool").mkdir()
             with self.assertRaises(FileExistsError):
                 build(archive, directory, directory, directory, directory)
+
+    def test_prune_old_distributions_keeps_current_and_unrelated_directories(self):
+        import build as desktop_build
+
+        with tempfile.TemporaryDirectory() as temporary:
+            dist = Path(temporary) / "dist"
+            current = dist / "latest" / "MSA-Handy-Tool"
+            old = dist / "old" / "MSA-Handy-Tool"
+            incomplete = dist / "incomplete" / "MSA-Handy-Tool"
+            unrelated = dist / "notes"
+            outside = Path(temporary) / "outside" / "MSA-Handy-Tool"
+            for distribution in (current, old, incomplete, outside):
+                distribution.mkdir(parents=True)
+                (distribution / "MSA-Handy-Tool.exe").write_bytes(b"app")
+            (incomplete / "MSA-Handy-Tool.exe").unlink()
+            (incomplete / "_internal").mkdir()
+            unrelated.mkdir(parents=True)
+            (unrelated / "keep.txt").write_text("keep", encoding="utf-8")
+
+            desktop_build.prune_old_distributions(current, dist)
+
+            self.assertTrue(current.is_dir())
+            self.assertFalse((dist / "old").exists())
+            self.assertFalse((dist / "incomplete").exists())
+            self.assertTrue((unrelated / "keep.txt").is_file())
+            self.assertTrue(outside.is_dir())
+            desktop_build.prune_old_distributions(outside, dist)
+            self.assertTrue(outside.is_dir())
 
     def test_build_replaces_bundled_ucrt_and_rejects_missing_sdk_files(self):
         import build as desktop_build

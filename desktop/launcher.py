@@ -14,25 +14,22 @@ from urllib.parse import urlsplit
 from PIL import Image
 
 if not getattr(sys, "frozen", False):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from browser_poc_server import ProofHandler, ROOT, app_icon, validate_pyodide_runtime
+from web.server import AppHandler, ROOT, app_icon, validate_pyodide_runtime
 
 
 def start_server(runtime_directory: Path) -> ThreadingHTTPServer:
     runtime_directory = runtime_directory.resolve(strict=True)
     allowed = validate_pyodide_runtime(runtime_directory)
 
-    class LocalHandler(ProofHandler):
+    class LocalHandler(AppHandler):
         runtime_allowlist = allowed
 
         def do_GET(self):
             path = urlsplit(self.path).path
             if self.headers.get("Host") != f"127.0.0.1:{self.server.server_port}":
                 self.send_error(403)
-                return
-            if path in {"/", "/baseline.json", "/tests/browser_poc.py"}:
-                self.send_error(404)
                 return
             super().do_GET()
 
@@ -100,7 +97,7 @@ def visible_app_windows() -> list[tuple[int, int]]:
         user32.GetWindowTextW(handle, title, len(title))
         if class_name.value != "Chrome_WidgetWin_1":
             return True
-        if title.value == "MSA Handy Tool" or title.value.endswith("| Browser prototype"):
+        if title.value == "MSA Handy Tool" or title.value.endswith("| MSA Handy Tool"):
             owner = ctypes.c_ulong()
             user32.GetWindowThreadProcessId(handle, ctypes.byref(owner))
             windows.append((int(handle), owner.value))

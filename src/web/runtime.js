@@ -25,11 +25,12 @@ export function loadStudy(study) {
   if (!adapters.has(study)) {
     adapters.set(study, (async () => {
       const python = await getRuntime();
-      const path = `/tests/${study}_browser_poc.py`;
+      const adapterName = study === 'grr' ? 'gage_rr' : 'paired';
+      const path = `/src/web/adapters/${adapterName}.py`;
       const response = await fetch(path);
       if (!response.ok) throw new Error(`Could not load ${path}`);
       python.FS.writeFile(`/project${path}`, await response.text(), {encoding: 'utf8'});
-      await python.runPythonAsync(`import json, base64, io, zipfile\n${study}_adapter = runpy.run_path('/project/tests/${study}_browser_poc.py')\nbrowser_examples = examples\ndef make_example_zip(data):\n    buffer = io.BytesIO()\n    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:\n        for name, text in json.loads(data).items():\n            archive.writestr(name, text)\n    return base64.b64encode(buffer.getvalue()).decode('ascii')`);
+      await python.runPythonAsync(`import json, base64, io, zipfile\n${study}_adapter = runpy.run_path('/project/src/web/adapters/${adapterName}.py')\nbrowser_examples = examples\ndef make_example_zip(data):\n    buffer = io.BytesIO()\n    with zipfile.ZipFile(buffer, 'w', compression=zipfile.ZIP_DEFLATED) as archive:\n        for name, text in json.loads(data).items():\n            archive.writestr(name, text)\n    return base64.b64encode(buffer.getvalue()).decode('ascii')`);
       return python;
     })().catch(error => { adapters.delete(study); throw error; }));
   }
@@ -44,7 +45,7 @@ async function initialize() {
   await python.loadPackage(['numpy', 'pandas', 'scipy', 'matplotlib']);
   const paths = ['__init__', 'calculations', 'data_parser', 'input_examples', 'paired_ttest', 'paired_visualization', 'presentation', 'study_config', 'visualization']
     .map(name => `/src/gage_tracer/${name}.py`);
-  paths.push('/tests/type1_browser_poc.py');
+  paths.push('/src/web/adapters/type1.py');
   const sources = await Promise.all(paths.map(async path => {
     const response = await fetch(path);
     if (!response.ok) throw new Error(`Could not load ${path}`);
@@ -55,6 +56,6 @@ async function initialize() {
     python.FS.mkdirTree(destination.slice(0, destination.lastIndexOf('/')));
     python.FS.writeFile(destination, contents, {encoding: 'utf8'});
   }
-  await python.runPythonAsync("import sys, runpy; sys.path.insert(0, '/project/src'); type1_adapter = runpy.run_path('/project/tests/type1_browser_poc.py'); from gage_tracer import input_examples as examples; examples = vars(examples)");
+  await python.runPythonAsync("import sys, runpy; sys.path.insert(0, '/project/src'); type1_adapter = runpy.run_path('/project/src/web/adapters/type1.py'); from gage_tracer import input_examples as examples; examples = vars(examples)");
   return python;
 }

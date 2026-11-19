@@ -26,8 +26,9 @@ the server does not delete downloaded reports or securely erase browser memory.
 - `cli/command.py` — Unified `msa` CLI with `type1`, `grr`, and `paired` subcommands.
 - `cli/Type_1_gage_handy_tool.py`, `cli/Paired_T_Test_tool.py`,
   `cli/Gage_RR_tool.py` — Legacy entry points retained for compatibility.
-- `tests/browser_app.*` and `tests/*browser_poc.*` — Browser UI, adapters, server, and validation harness.
+- `src/web/` — Browser UI, Pyodide runtime, study adapters, and local application server.
 - `src/gage_tracer/` — Core library with parsing, calculation, examples, and dashboard rendering.
+- `tests/` — Browser comparisons, desktop checks, fixtures, and analytical validation.
 - `data/examples/` — Versioned synthetic example inputs.
 - `data/private/` — Ignored location for confidential local input data.
 - `outputs/` — Ignored generated analysis files.
@@ -77,8 +78,8 @@ flowchart LR
 ### Application and analysis modules
 
 - `desktop/launcher.py` starts a loopback-only server and opens the browser app.
-- `tests/browser_app.js`, `tests/type1_browser_poc.js`, and
-  `tests/msa_browser_poc.js` coordinate the three browser workflows.
+- `src/web/app.js`, `src/web/type1.js`, and `src/web/studies.js`
+  coordinate the three browser workflows; `src/web/adapters/` provides the Python boundary.
 - `data_parser.py` parses and validates the input formats for each study.
 - `calculations.py` implements Type 1 and crossed Gage R&R calculations,
   including bias, capability indices, variance components, and NDC.
@@ -131,7 +132,10 @@ production measurement data in version control.
 ├── docs/
 ├── outputs/
 ├── src/
-│   └── gage_tracer/
+│   ├── gage_tracer/
+│   └── web/
+│       ├── adapters/
+│       └── browser UI assets
 └── tests/
 ```
 
@@ -143,7 +147,7 @@ Use the packaged Windows executable described above, or start the local browser
 server with a local Pyodide distribution:
 
 ```powershell
-python tests/browser_poc_server.py --pyodide-dir "C:\path\to\pyodide"
+python -m web.server --pyodide-dir "C:\path\to\pyodide"
 ```
 
 Then open `http://127.0.0.1:8765/app`. The interface provides browser-local file
@@ -192,16 +196,15 @@ from the existing sample files and can be regenerated with:
 python data/examples/generate_input_modes.py
 ```
 
-### Browser Processing Proof
+### Browser Development Server
 
-Start the experimental local server with `python tests/browser_poc_server.py`:
+Start the local development server with `python -m web.server`:
 
 - `http://127.0.0.1:8765/app`: unified navigation for all three studies, using
 	one Pyodide instance while the page remains open.
 - `http://127.0.0.1:8765/type1`: Type 1 with normalized data and HTML downloads.
 - `http://127.0.0.1:8765/grr`: Gage R&R with single or grouped inputs and HTML/ZIP reports.
 - `http://127.0.0.1:8765/paired`: Paired T with two inputs and HTML/ZIP reports.
-- `http://127.0.0.1:8765/`: the original synthetic comparison proof.
 
 Each study supports the three report formats and provides synthetic examples;
 use `REPORT` in both custom marker fields for those examples. Switching studies
@@ -219,13 +222,13 @@ verify the archive checksum published there, extract it outside the repository,
 and point the server to the extracted directory containing `pyodide-lock.json`:
 
 ```powershell
-python tests/browser_poc_server.py --pyodide-dir "C:\path\to\pyodide"
+python -m web.server --pyodide-dir "C:\path\to\pyodide"
 ```
 
 The server checks required package files against the supplied lock file, but
 does not independently authenticate the lock or Pyodide core files. Obtain them
-from a trusted source. The original `/` proof still uses jsDelivr even with a
-local runtime; local-only mode applies to `/app`, `/type1`, `/grr`, and `/paired`.
+from a trusted source. With `--pyodide-dir`, `/app` and the individual study
+pages use only the locally served runtime.
 
 To run the optional browser comparison tests, install Playwright in the local
 development environment (`python -m pip install playwright`), then run:
@@ -268,7 +271,12 @@ python desktop/build.py --core-archive "C:\path\to\pyodide-core-0.27.7.tar.bz2" 
 
 The build checks the official core archive's SHA-256, checks each required
 package against the lock file from that archive, and verifies the Visual C++
-runtime DLLs against the official redistributable. An alternative SDK-based
+runtime DLLs against the official redistributable. After a successful build, the
+build routine keeps only the newest recognized local distribution under `dist/`
+and removes older generated distribution folders there. Unrelated directories
+and release ZIPs are not part of this cleanup.
+
+An alternative SDK-based
 build accepts `--ucrt-dir` and `--sdk-license`; see the third-party notices for
 its conditions. It refuses to overwrite an
 existing `dist/MSA-Handy-Tool`; choose a different `--output` directory for

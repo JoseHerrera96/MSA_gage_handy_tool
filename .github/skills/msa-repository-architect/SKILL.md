@@ -16,7 +16,7 @@ and the user's requested scope.
 1. Identify the requested outcome, affected workflows, constraints, and evidence
    needed. Inspect the owning modules and relevant tests before proposing a
    structural change. Ask focused questions only when a decision is blocked.
-2. Trace the relevant data flow: browser modules in `tests/` and CLI entry
+2. Trace the relevant data flow: browser modules in `src/web/` and CLI entry
    points in `cli/` coordinate parsers, calculations, presentation, and report
    generation in `src/gage_tracer/`. Confirm actual dependencies in the code.
 3. Evaluate responsibilities, public contracts, coupling, failure handling,
@@ -32,6 +32,10 @@ and the user's requested scope.
 6. For a review or design request, present findings and risks first with file
    references, followed by a prioritized recommendation and verification plan.
    Do not edit files when the user asks only for analysis or a proposal.
+7. When generating a local Windows distribution, validate the new build first,
+   retain that newest verified distribution under `dist/`, and remove only older
+   recognized distributions in that folder. Never delete unrelated directories,
+   source files, or release ZIPs; keep `dist/` ignored and rebuildable.
 
 ## Boundaries
 

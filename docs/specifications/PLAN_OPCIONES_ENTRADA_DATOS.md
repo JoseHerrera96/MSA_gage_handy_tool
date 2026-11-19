@@ -180,8 +180,8 @@ observaciones`. Ejemplo: `10 observaciones por sistema · 10 pares`.
 
 ## 4. Arquitectura propuesta
 
-- `tests/browser_app.js`: organiza el flujo de estudios y separa el estado por modalidad.
-- `tests/msa_browser_poc.js`: presenta la selección de distribución y separación,
+- `src/web/app.js`: organiza el flujo de estudios y separa el estado por modalidad.
+- `src/web/studies.js`: presenta la selección de distribución y separación,
 	instrucciones, cargas y conteo de reportes/características detectados; entrega
 	los datos al adaptador Python sin compartirlos con el servidor.
 - `src/gage_tracer/data_parser.py`: implementa o extiende parsers por modalidad,

@@ -11,7 +11,6 @@ All figures match the Minitab Assistant visual style for paired t-tests:
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import matplotlib
@@ -758,25 +757,3 @@ def create_run_chart_figure(
     axis.legend(loc="best", fontsize=8.5, frameon=False)
     fig.tight_layout()
     return fig
-
-
-# ---------------------------------------------------------------------------
-# Backward Compatibility Aliases
-# ---------------------------------------------------------------------------
-
-def create_paired_summary_figures(
-    metrics: dict[str, Any],
-) -> tuple[plt.Figure, plt.Figure]:
-    """Backward-compatible alias returning the two summary figures."""
-    return create_pvalue_gauge_figure(metrics), create_stats_tables_figure(metrics)
-
-
-def create_paired_diagnostic_figures(
-    paired_df: pd.DataFrame,
-    metrics: dict[str, Any],
-) -> tuple[plt.Figure, plt.Figure, plt.Figure]:
-    """Backward-compatible alias returning slopegraph, histogram+CI, run chart."""
-    slopegraph = create_paired_slopegraph_figure(paired_df, metrics)
-    histogram = create_histogram_ci_figure(paired_df, metrics)
-    run = create_run_chart_figure(paired_df, metrics)
-    return slopegraph, histogram, run

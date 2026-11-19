@@ -186,7 +186,7 @@ All charts and images are embedded as Base64, making the file completely self-co
 If you want to use the paired t-test functions directly in your Python code:
 
 ```python
-from src.gage_tracer.paired_ttest import (
+from gage_tracer.paired_ttest import (
     parse_paired_measurements,
     calculate_paired_ttest_metrics,
     create_paired_ttest_dashboard,
