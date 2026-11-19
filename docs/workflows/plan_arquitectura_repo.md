@@ -50,7 +50,7 @@ flowchart TD
   * Declarar metadatos del proyecto, versión, autores y licencia.
   * Declarar dependencias formales (`dependencies`) basadas en `requirements.txt`.
   * Configurar `setuptools` o `hatchling` con `package-dir = {"": "src"}`.
-  * Declarar puntos de entrada de comando (`[project.scripts]`) para Streamlit y CLI.
+  * Declarar puntos de entrada de comando (`[project.scripts]`) para la CLI.
 * **2.2. Instalación editable:**
   * Soporte formal para `pip install -e .` en el entorno `.venv`.
 * **2.3. Limpieza de hacks de importación:**

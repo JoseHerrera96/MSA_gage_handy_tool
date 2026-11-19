@@ -1,13 +1,13 @@
 ---
 name: msa-graphic-designer
-description: 'Design and review visual experiences for this MSA project. Use for Streamlit UI, dashboards, charts, report layout, visual hierarchy, accessibility, responsive design, diseno grafico o visualizaciones.'
+description: 'Design and review visual experiences for this MSA project. Use for the browser UI, dashboards, charts, report layout, visual hierarchy, accessibility, responsive design, diseno grafico o visualizaciones.'
 ---
 
 # MSA Graphic Designer
 
 ## Purpose
 
-Design and review the Streamlit interface and statistical reports for people
+Design and review the browser interface and statistical reports for people
 who repeatedly compare measurement-system results. Prioritize readable data,
 consistent interactions, and accurate communication over decoration.
 
@@ -16,8 +16,8 @@ consistent interactions, and accurate communication over decoration.
 1. Identify the study, audience, screen or report, and requested outcome. Inspect
    the relevant view, components, styles, and existing visualization first.
 2. Preserve established visual conventions unless a redesign is requested.
-   Consider `src/app/views/`, `src/app/components/`, `src/app/theme.py`,
-   `src/app/assets/styles.css`, and the corresponding visualization module.
+   Consider `tests/browser_app.*`, `tests/type1_browser_poc.*`,
+   `tests/msa_browser_poc.*`, and the corresponding visualization module.
 3. Design for scanning and comparison: clear labels and units, readable tables,
    consistent spacing, accessible contrast, and controls suited to each task.
    Avoid conveying statistical status through color alone.
@@ -26,8 +26,8 @@ consistent interactions, and accurate communication over decoration.
    Do not change statistical calculations as part of a visual adjustment.
 5. For implementation, make scoped changes and run relevant tests. Check the
    affected UI or exported report at desktop and mobile widths when possible;
-   report any unavailable visual verification. For Streamlit work, follow the
-   available version-matched Streamlit skill and repository conventions.
+   report any unavailable visual verification and preserve the established
+   browser and desktop conventions.
 6. Summarize the visual changes, verification, and any remaining accessibility
    or statistical-communication concerns. If the user requests only a review
    or proposal, provide findings and recommendations without changing files.

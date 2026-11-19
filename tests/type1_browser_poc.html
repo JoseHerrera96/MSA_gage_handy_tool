@@ -45,11 +45,17 @@
     .metric small.fail { color: #ffb1a8; }
     .notice { border-left: 3px solid #7ac5aa; background: #1a2e28; padding: 11px 14px; font-size: 14px; }
     .notice.warning { border-color: #efb65c; background: #30271b; }
+    .select-label { display: grid; gap: 8px; max-width: 440px; }
+    select { color: #f9fafb; background: #242424; border: 1px solid #54545d; border-radius: 4px; padding: 10px; width: 100%; font: inherit; }
     .table-wrap { overflow-x: auto; }
     table { border-collapse: collapse; width: 100%; font-size: 13px; white-space: nowrap; }
     th, td { padding: 10px 12px; border-bottom: 1px solid #3f3f46; text-align: right; }
     th { color: #b7b7bf; font-weight: 600; }
     th:first-child, td:first-child { text-align: left; }
+    .dimension-chart { margin-top: 20px; border: 1px solid #3f3f46; border-radius: 4px; background: #191919; overflow: hidden; }
+    .dimension-chart summary { cursor: pointer; padding: 13px 16px; color: #f58220; font-size: 14px; font-weight: 600; }
+    .dimension-chart summary:focus-visible { outline: 2px solid #8ccbd3; outline-offset: -4px; }
+    .dimension-chart img { display: block; width: 100%; height: auto; border-top: 1px solid #3f3f46; }
     [hidden] { display: none !important; }
     @media (max-width: 620px) { header { padding: 16px; } main { padding: 24px 16px 40px; } .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } .markers { grid-template-columns: 1fr; } }
   </style>
@@ -83,7 +89,11 @@
     </section>
     <div id="results" hidden>
       <section aria-labelledby="results-heading">
-        <h2 id="results-heading">Key results</h2>
+        <h2 id="results-heading">Results</h2>
+        <label class="select-label">Report <select id="report"></select></label>
+      </section>
+      <section id="overview" aria-labelledby="overview-heading">
+        <h2 id="overview-heading">Study Overview</h2>
         <p id="observations" class="hint"></p>
         <dl class="metrics">
           <div class="metric"><dt>Dimensions</dt><dd id="dimensions"></dd></div>
@@ -96,6 +106,16 @@
       <section aria-labelledby="summary-heading">
         <h2 id="summary-heading">Dimension summary</h2>
         <div class="table-wrap"><table id="summary"><thead></thead><tbody></tbody></table></div>
+      </section>
+      <section id="dimension-report" aria-labelledby="dimension-heading" hidden>
+        <h2 id="dimension-heading"></h2>
+        <p id="dimension-context" class="hint"></p>
+        <dl id="dimension-metrics" class="metrics"></dl>
+        <p id="dimension-verdict" class="notice"></p>
+        <details id="dimension-chart" class="dimension-chart" open>
+          <summary>Type 1 charts</summary>
+          <img id="dimension-chart-image" alt="">
+        </details>
       </section>
       <section aria-labelledby="export-heading">
         <h2 id="export-heading">Export</h2>

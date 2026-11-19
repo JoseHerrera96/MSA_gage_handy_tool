@@ -1,6 +1,6 @@
 ---
 name: msa-report-consistency
-description: 'Check consistency of MSA results across Streamlit, CLI, text reports and HTML dashboards. Use for report discrepancies, exports, visualizations, warnings, metric formatting or consistencia de informes.'
+description: 'Check consistency of MSA results across the browser UI, CLI, text reports and HTML dashboards. Use for report discrepancies, exports, visualizations, warnings, metric formatting or consistencia de informes.'
 ---
 
 # MSA Report Consistency
@@ -9,7 +9,7 @@ description: 'Check consistency of MSA results across Streamlit, CLI, text repor
 
 1. Identify the study, input, and surfaces being compared. Trace shared
    calculations through `src/gage_tracer/presentation.py`, visualization
-   modules, the relevant Streamlit view, and the CLI entry point.
+   modules, the relevant browser adapter, and the CLI entry point.
 2. Run equivalent inputs and settings through the relevant paths. Compare
    normalized observations, metrics, units, thresholds, verdicts, warnings,
    chart labels, and available exports. Account for intentional differences

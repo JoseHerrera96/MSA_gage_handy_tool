@@ -16,7 +16,7 @@ and the user's requested scope.
 1. Identify the requested outcome, affected workflows, constraints, and evidence
    needed. Inspect the owning modules and relevant tests before proposing a
    structural change. Ask focused questions only when a decision is blocked.
-2. Trace the relevant data flow: Streamlit views in `src/app/` and CLI entry
+2. Trace the relevant data flow: browser modules in `tests/` and CLI entry
    points in `cli/` coordinate parsers, calculations, presentation, and report
    generation in `src/gage_tracer/`. Confirm actual dependencies in the code.
 3. Evaluate responsibilities, public contracts, coupling, failure handling,

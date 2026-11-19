@@ -6,8 +6,8 @@ This tool performs a paired comparison study between two measurement systems (Sy
 
 ### 1. Prepare Your Data
 
-For the CLI, place both files in `paired_ttest/raw/`. Existing root-level input
-files are still accepted as a legacy fallback. In Streamlit, upload both files.
+For the CLI, provide both files with `--system-a` and `--system-b`. Existing
+legacy paths remain accepted as fallback; in the desktop app, upload both files.
 
 - **`PAIRED DATA SYSTEM A.txt`**: One measurement per line (System A values)
 - **`PAIRED DATA SYSTEM B.txt`**: One measurement per line (System B values)

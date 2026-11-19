@@ -3,31 +3,79 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.egg-info/
+.pytest_cache/
+.mypy_cache/
+.pyright/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pyre/
+.tox/
+.nox/
+.hypothesis/
 build/
+site/
 
-# ── Virtual environment ──
+# ── Virtual environment / local package managers ──
 .venv/
 venv/
 ENV/
+env/
+.conda/
+.pip-cache/
 
-# ── IDE / Editor ──
+# ── IDE / Editor / AI tooling ──
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.history/
+.aider*
+.claude/
+.copilot/
 
 # ── OS ──
 Thumbs.db
 .DS_Store
 desktop.ini
 
+# ── Local logs, temporary files, and test artifacts ──
+*.log
+*.tmp
+*.temp
+*.bak
+.tmp/
+tmp/
+temp/
+test-results/
+playwright-report/
+
+# ── Local credentials and sensitive configuration ──
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+
 # ── Project-specific binary / proprietary formats ──
 *.qpf
 *.mwx
 
-# ── Generated workflow outputs ──
+# ── Generated builds and portable releases ──
 /dist/
+/build/
+*.spec
+*.exe
+*.dll
+*.msi
+*.zip
+
+# ── Generated workflow outputs ──
 outputs/*/*
 !outputs/*/.gitkeep
 !outputs/.gitkeep

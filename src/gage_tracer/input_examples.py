@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from io import BytesIO
 from itertools import product
-from zipfile import ZIP_DEFLATED, ZipFile
 
-from gage_tracer.study_config import GRR_DESIGN
+from .study_config import GRR_DESIGN
 
 
 def _render_reports(reports: list[list[str]], report_format: str) -> str:
@@ -78,45 +76,3 @@ def build_input_examples(
     else:
         reports = [report(part, operator, trial) for operator, part, trial in product(operators, parts, trials)]
     return {"gage_rr.txt": _render_reports(reports, report_format)}
-
-
-def render_input_examples(
-    st,
-    study: str,
-    report_format: str,
-    distribution: str = "single",
-    report_order: str = "part-major",
-) -> None:
-    state_key = f"{study}_examples_open"
-    if st.button("View example", key=f"{study}_examples_button", icon=":material/description:"):
-        st.session_state[state_key] = not st.session_state.get(state_key, False)
-    if st.session_state.get(state_key, False) is not True:
-        return
-
-    examples = build_input_examples(study, report_format, distribution, report_order)
-    st.caption("Synthetic example data. The preview shows the first 24 lines of the selected file.")
-    if report_format == "custom":
-        st.caption("For these files, enter REPORT as both the start and end marker.")
-    if study == "grr" and distribution == "single":
-        st.caption(f"Report sequence: {report_order}.")
-    if study == "grr" and distribution != "single":
-        st.caption("Upload each numbered file to the matching part or operator field.")
-    names = list(examples)
-    selected = names[0] if len(names) == 1 else st.selectbox(
-        "Example file", names, key=f"{study}_example_file_{distribution}"
-    )
-    st.code("\n".join(examples[selected].splitlines()[:24]), language=None)
-    st.download_button(
-        "Download selected file", examples[selected], file_name=selected,
-        mime="text/plain", key=f"{study}_example_download",
-    )
-    if len(examples) > 1:
-        archive = BytesIO()
-        with ZipFile(archive, "w", ZIP_DEFLATED) as zipped:
-            for name, contents in examples.items():
-                zipped.writestr(name, contents)
-        st.download_button(
-            "Download all examples (.zip)", archive.getvalue(),
-            file_name=f"{study}_examples.zip", mime="application/zip",
-            key=f"{study}_examples_zip",
-        )

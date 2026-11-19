@@ -622,7 +622,7 @@ def create_gage_rr_dashboard(
         part_col: Name of part column (default "Part").
         op_col: Name of operator column (default "Operator").
         resp_col: Name of measurement column (default "Measurement").
-        dark_mode: Use the dark Streamlit preview palette when ``True``.
+        dark_mode: Use the dark browser preview palette when ``True``.
 
     Returns:
         matplotlib Figure object with 6 panels.

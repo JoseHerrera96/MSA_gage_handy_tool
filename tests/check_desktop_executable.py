@@ -70,7 +70,7 @@ def close_tray_menu(process_id: int) -> None:
     raise RuntimeError("Tray context menu did not open")
 
 
-def close_owned_browser_window(process_id: int) -> None:
+def close_owned_browser_window(process_id: int) -> int:
     user32 = ctypes.windll.user32
     kernel32 = ctypes.windll.kernel32
     callback_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
@@ -110,17 +110,20 @@ def close_owned_browser_window(process_id: int) -> None:
         def find_window(handle, unused):
             owner = ctypes.c_ulong()
             user32.GetWindowThreadProcessId(handle, ctypes.byref(owner))
-            if owner.value in children and user32.IsWindowVisible(handle):
+            if owner.value and user32.IsWindowVisible(handle):
                 name = ctypes.create_unicode_buffer(256)
+                title = ctypes.create_unicode_buffer(512)
                 user32.GetClassNameW(handle, name, len(name))
-                if name.value == "Chrome_WidgetWin_1":
-                    windows.append(handle)
+                user32.GetWindowTextW(handle, title, len(title))
+                if name.value == "Chrome_WidgetWin_1" and (title.value == "MSA Handy Tool" or title.value.endswith("| Browser prototype")):
+                    windows.append((handle, owner.value))
             return True
 
         user32.EnumWindows(find_window, 0)
         if windows:
-            user32.PostMessageW(windows[0], 0x0010, 0, 0)
-            return
+            handle, owner = windows[-1]
+            user32.PostMessageW(handle, 0x0010, 0, 0)
+            return owner
         threading.Event().wait(0.2)
     raise TimeoutError("App-owned browser window did not appear")
 
@@ -129,14 +132,18 @@ def verify_window_close(executable: Path, environment: dict) -> None:
     process = subprocess.Popen([str(executable)], cwd=tempfile.gettempdir(), env=environment)
     try:
         port = wait_for_port(process)
-        close_owned_browser_window(process.pid)
+        browser_pid = close_owned_browser_window(process.pid)
         if process.wait(timeout=30) != 0:
             raise RuntimeError("Launcher failed after closing its app window")
         with socket.socket() as connection:
             connection.settimeout(1)
             if connection.connect_ex(("127.0.0.1", port)) == 0:
                 raise RuntimeError("Server remained open after closing the app window")
-        print("Closing the app window stopped the launcher and server")
+        process_handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, browser_pid)
+        if process_handle:
+            ctypes.windll.kernel32.CloseHandle(process_handle)
+            raise RuntimeError("App browser process remained after closing the window")
+        print("Closing the app window stopped the launcher, server, tray, and browser process")
     finally:
         if process.poll() is None:
             process.terminate()

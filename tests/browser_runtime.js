@@ -1,8 +1,22 @@
 let runtimePromise;
 const adapters = new Map();
+const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+async function initializeWithRetry() {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await initialize();
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await wait(attempt * 500);
+    }
+  }
+  throw lastError;
+}
 
 export function getRuntime() {
-  if (!runtimePromise) runtimePromise = initialize().catch(error => { runtimePromise = undefined; throw error; });
+  if (!runtimePromise) runtimePromise = initializeWithRetry().catch(error => { runtimePromise = undefined; throw error; });
   return runtimePromise;
 }
 
@@ -28,9 +42,9 @@ async function initialize() {
   const {loadPyodide} = await import(`${indexURL}pyodide.mjs`);
   const python = await loadPyodide({indexURL});
   await python.loadPackage(['numpy', 'pandas', 'scipy', 'matplotlib']);
-  const paths = ['__init__', 'calculations', 'data_parser', 'paired_ttest', 'paired_visualization', 'presentation', 'study_config', 'visualization']
+  const paths = ['__init__', 'calculations', 'data_parser', 'input_examples', 'paired_ttest', 'paired_visualization', 'presentation', 'study_config', 'visualization']
     .map(name => `/src/gage_tracer/${name}.py`);
-  paths.push('/src/app/components/input_examples.py', '/tests/type1_browser_poc.py');
+  paths.push('/tests/type1_browser_poc.py');
   const sources = await Promise.all(paths.map(async path => {
     const response = await fetch(path);
     if (!response.ok) throw new Error(`Could not load ${path}`);
@@ -41,6 +55,6 @@ async function initialize() {
     python.FS.mkdirTree(destination.slice(0, destination.lastIndexOf('/')));
     python.FS.writeFile(destination, contents, {encoding: 'utf8'});
   }
-  await python.runPythonAsync("import sys, runpy; sys.path.insert(0, '/project/src'); type1_adapter = runpy.run_path('/project/tests/type1_browser_poc.py'); examples = runpy.run_path('/project/src/app/components/input_examples.py')");
+  await python.runPythonAsync("import sys, runpy; sys.path.insert(0, '/project/src'); type1_adapter = runpy.run_path('/project/tests/type1_browser_poc.py'); from gage_tracer import input_examples as examples; examples = vars(examples)");
   return python;
 }
