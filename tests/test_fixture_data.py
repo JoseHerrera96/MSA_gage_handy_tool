@@ -35,7 +35,7 @@ def example_source(path: Path, report_format: str):
 class SyntheticFixtureTests(unittest.TestCase):
     def test_browser_type1_adapter_matches_existing_workflow(self) -> None:
         from browser_poc import load_examples
-        from type1_browser_poc import analyze_type1
+        from web.adapters.type1 import analyze_type1
         from gage_tracer.presentation import build_type1_summary
 
         examples = load_examples()
@@ -65,7 +65,7 @@ class SyntheticFixtureTests(unittest.TestCase):
 
     def test_browser_type1_threshold_decisions(self) -> None:
         from browser_poc import load_examples
-        from type1_browser_poc import analyze_type1
+        from web.adapters.type1 import analyze_type1
 
         text = load_examples()("type1", "periodic")["type1.txt"]
         for tolerance, expected in (("0.05590", "FAIL"), ("0.05595", "PASS")):
@@ -75,7 +75,7 @@ class SyntheticFixtureTests(unittest.TestCase):
                 self.assertEqual(result["metrics"]["cgk_status"], expected)
 
     def test_browser_type1_large_multicharacteristic_input(self) -> None:
-        from type1_browser_poc import analyze_type1
+        from web.adapters.type1 import analyze_type1
 
         lines = []
         for index in range(1000):
@@ -91,7 +91,7 @@ class SyntheticFixtureTests(unittest.TestCase):
 
     def test_browser_grr_adapter_assignments(self) -> None:
         from browser_poc import load_examples
-        from grr_browser_poc import analyze_grr, grr_detail
+        from web.adapters.gage_rr import analyze_grr, grr_detail
 
         examples = load_examples()
         expected = None
@@ -120,7 +120,7 @@ class SyntheticFixtureTests(unittest.TestCase):
 
     def test_browser_paired_adapter_formats_and_alignment(self) -> None:
         from browser_poc import load_examples
-        from paired_browser_poc import analyze_paired
+        from web.adapters.paired import analyze_paired
 
         examples = load_examples()
         expected = None
@@ -142,7 +142,7 @@ class SyntheticFixtureTests(unittest.TestCase):
             analyze_paired("1\n2\n3\n", "1\n2\n", "periodic")
 
     def test_browser_local_runtime_allowlist(self) -> None:
-        from browser_poc_server import pyodide_runtime_allowlist
+        from web.server import pyodide_runtime_allowlist
 
         lock = {"info": {"version": "0.27.7"}, "packages": {
             "safe": {"file_name": "safe.whl"},
@@ -161,7 +161,7 @@ class SyntheticFixtureTests(unittest.TestCase):
         import hashlib
         import json
         from tempfile import TemporaryDirectory
-        from browser_poc_server import validate_pyodide_runtime
+        from web.server import validate_pyodide_runtime
 
         with TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -178,7 +178,7 @@ class SyntheticFixtureTests(unittest.TestCase):
 
     def test_type1_dashboard_escapes_characteristic_names(self) -> None:
         from browser_poc import load_examples
-        from type1_browser_poc import analyze_type1
+        from web.adapters.type1 import analyze_type1
 
         name = '<img src=x onerror=alert(1)>'
         text = load_examples()("type1", "periodic")["type1.txt"].replace("Diameter", name)
@@ -193,8 +193,8 @@ class SyntheticFixtureTests(unittest.TestCase):
 
     def test_browser_reports_escape_user_labels(self) -> None:
         from browser_poc import load_examples
-        from grr_browser_poc import analyze_grr, grr_export
-        from paired_browser_poc import analyze_paired, paired_export
+        from web.adapters.gage_rr import analyze_grr, grr_export
+        from web.adapters.paired import analyze_paired, paired_export
 
         name = '<img src=x onerror=alert(1)>'
         escaped = '&lt;img src=x onerror=alert(1)&gt;'
@@ -223,9 +223,9 @@ class SyntheticFixtureTests(unittest.TestCase):
         import numpy as np
         from PIL import Image
         from browser_poc import load_examples
-        from grr_browser_poc import analyze_grr, grr_export
-        from paired_browser_poc import analyze_paired, paired_export
-        from type1_browser_poc import analyze_type1
+        from web.adapters.gage_rr import analyze_grr, grr_export
+        from web.adapters.paired import analyze_paired, paired_export
+        from web.adapters.type1 import analyze_type1
 
         examples = load_examples()
         type1 = analyze_type1(examples("type1", "periodic")["type1.txt"], "periodic")

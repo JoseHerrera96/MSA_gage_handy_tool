@@ -14,8 +14,9 @@ import zipfile
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT / "src"))
 sys.path.insert(0, str(PROJECT / "tests"))
-from browser_poc_server import SOURCES, pyodide_runtime_allowlist, validate_pyodide_runtime
+from web.server import SOURCES, pyodide_runtime_allowlist, validate_pyodide_runtime
 
 CORE_SHA256 = "9bc8f127db6c590b191b9aee754022cb41b1a36c7bac233776c11c5ecb541be8"
 UCRT_MANIFEST_SHA256 = "0f2b5d13d9524a3329f9aefe793cb7355c1a79ac2f9a316e7d4110a0e1fadde3"
@@ -25,17 +26,17 @@ VCRUNTIME_SHA256 = {
     "VCRUNTIME140_1.dll": "6a99bc0128e0c7d6cbbf615fcc26909565e17d4ca3451b97f8987f9c6acbc6c8",
 }
 CORE_FILES = ("pyodide.mjs", "pyodide.asm.js", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json")
-UI_FILES = ("browser_app.html", "browser_app.js", "browser_runtime.js", "type1_browser_poc.html", "type1_browser_poc.js", "msa_browser_poc.html", "msa_browser_poc.js")
+UI_FILES = ("app.html", "app.js", "runtime.js", "type1.html", "type1.js", "studies.html", "studies.js")
 
 
 def stage_application_source(destination: Path) -> Path:
     sources = [source for route, source in SOURCES.items() if route != "/tests/browser_poc.py"]
-    sources.extend(PROJECT / "tests" / name for name in UI_FILES)
+    sources.extend(PROJECT / "src" / "web" / name for name in UI_FILES)
     sources.extend(PROJECT / name for name in (
         "LICENSE", "README.md", "pyproject.toml", "requirements.txt",
         "desktop/launcher.py", "desktop/build.py", "desktop/THIRD_PARTY_NOTICES.md",
         "desktop/hooks/hook-pystray.py", "desktop/licenses/OPENBLAS-0.3.26.txt",
-        "tests/browser_poc_server.py",
+        "src/web/__init__.py", "src/web/server.py", "src/web/adapters/__init__.py",
     ))
     for source in sources:
         target = destination / source.relative_to(PROJECT)
@@ -165,6 +166,21 @@ def verify_vcruntime(bundle: Path) -> None:
             raise ValueError(f"Visual C++ runtime does not match the verified redistributable: {name}")
 
 
+def prune_old_distributions(result: Path, dist_root: Path = PROJECT / "dist") -> None:
+    result = result.resolve()
+    dist_root = dist_root.resolve()
+    if not result.is_relative_to(dist_root):
+        return
+    preserve = result.parent if result.parent != dist_root else result
+    for child in dist_root.iterdir():
+        if not child.is_dir() or child == preserve:
+            continue
+        distribution = child if child.name == "MSA-Handy-Tool" else child / "MSA-Handy-Tool"
+        generated = (distribution / "MSA-Handy-Tool.exe").is_file() or (distribution / "_internal").is_dir()
+        if distribution.is_dir() and generated:
+            shutil.rmtree(child)
+
+
 def build(core_archive: Path, packages_directory: Path, output: Path, ucrt_directory: Path | None, sdk_license: Path | None, *, system_ucrt: bool = False) -> Path:
     output = output.resolve()
     result = output / "MSA-Handy-Tool"
@@ -183,9 +199,9 @@ def build(core_archive: Path, packages_directory: Path, output: Path, ucrt_direc
         stage_runtime(core_archive, packages_directory, runtime)
         licenses = temporary / "licenses"
         stage_licenses(runtime, licenses, sdk_license, snapshot)
-        command = [sys.executable, "-m", "PyInstaller", "--onedir", "--windowed", "--name", "MSA-Handy-Tool", "--additional-hooks-dir", str(snapshot / "desktop" / "hooks"), "--hidden-import", "pystray._win32", "--copy-metadata", "Pillow", "--copy-metadata", "pystray", "--copy-metadata", "six", "--paths", str(snapshot / "tests"), "--distpath", str(output), "--workpath", str(temporary / "work"), "--specpath", str(temporary)]
+        command = [sys.executable, "-m", "PyInstaller", "--onedir", "--windowed", "--name", "MSA-Handy-Tool", "--additional-hooks-dir", str(snapshot / "desktop" / "hooks"), "--hidden-import", "pystray._win32", "--copy-metadata", "Pillow", "--copy-metadata", "pystray", "--copy-metadata", "six", "--paths", str(snapshot / "src"), "--paths", str(snapshot / "tests"), "--distpath", str(output), "--workpath", str(temporary / "work"), "--specpath", str(temporary)]
         files = [source for route, source in SOURCES.items() if route != "/tests/browser_poc.py"]
-        files.extend(PROJECT / "tests" / name for name in UI_FILES)
+        files.extend(PROJECT / "src" / "web" / name for name in UI_FILES)
         files.append(PROJECT / "LICENSE")
         files.append(PROJECT / "desktop" / "THIRD_PARTY_NOTICES.md")
         for source in files:
@@ -198,6 +214,7 @@ def build(core_archive: Path, packages_directory: Path, output: Path, ucrt_direc
             remove_local_ucrt(result / "_internal")
         else:
             replace_ucrt_dlls(result / "_internal", ucrt_directory)
+    prune_old_distributions(result)
     return result
 
 

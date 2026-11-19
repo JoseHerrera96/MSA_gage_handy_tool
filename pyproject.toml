@@ -53,8 +53,11 @@ Issues = "https://github.com/JoseHerrera96/MSA_gage_handy_tool/issues"
 package-dir = {"" = "src", "cli" = "cli"}
 packages = [
     "gage_tracer",
+    "web",
+    "web.adapters",
     "cli",
 ]
 
 [tool.setuptools.package-data]
 "gage_tracer" = ["*.txt", "*.csv"]
+web = ["*.html", "*.js"]

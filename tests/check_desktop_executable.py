@@ -12,7 +12,7 @@ import threading
 import time
 from pathlib import Path
 
-from browser_type1_check import ProofHandler, run_browser, synthetic_cases, validate_pyodide_runtime
+from browser_type1_check import AppHandler, run_browser, synthetic_cases, validate_pyodide_runtime
 
 
 def wait_for_port(process: subprocess.Popen) -> int:
@@ -115,7 +115,7 @@ def close_owned_browser_window(process_id: int) -> int:
                 title = ctypes.create_unicode_buffer(512)
                 user32.GetClassNameW(handle, name, len(name))
                 user32.GetWindowTextW(handle, title, len(title))
-                if name.value == "Chrome_WidgetWin_1" and (title.value == "MSA Handy Tool" or title.value.endswith("| Browser prototype")):
+                if name.value == "Chrome_WidgetWin_1" and (title.value == "MSA Handy Tool" or title.value.endswith("| MSA Handy Tool")):
                     windows.append((handle, owner.value))
             return True
 
@@ -179,7 +179,7 @@ def main() -> None:
     parser.add_argument("--verify-tray-source", action="store_true", help="Check that a modified copy of the bundled tray source is loaded.")
     arguments = parser.parse_args()
     executable = arguments.executable.resolve(strict=True)
-    ProofHandler.runtime_allowlist = validate_pyodide_runtime(executable.parent / "_internal" / "pyodide")
+    AppHandler.runtime_allowlist = validate_pyodide_runtime(executable.parent / "_internal" / "pyodide")
     environment = os.environ.copy()
     environment["PATH"] = os.path.join(environment["SYSTEMROOT"], "System32") + os.pathsep + environment["SYSTEMROOT"]
     environment.pop("PYTHONHOME", None)

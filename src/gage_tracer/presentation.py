@@ -74,26 +74,6 @@ def format_type1_dataframe(summary_df: pd.DataFrame) -> pd.DataFrame:
     return display_df.set_index("Gage Item")
 
 
-def paired_summary_dataframe(metrics: dict[str, Any]) -> pd.DataFrame:
-    """Format paired t-test metrics for the summary table."""
-    return (
-        pd.DataFrame(
-            [
-                {"Metric": "N", "System A": int(metrics["N"]), "System B": int(metrics["N"]), "Difference": ""},
-                {"Metric": "Mean", "System A": f"{metrics['Mean_A']:.6f}", "System B": f"{metrics['Mean_B']:.6f}", "Difference": f"{metrics['Mean_D']:.6f}"},
-                {"Metric": "StDev", "System A": f"{metrics['StDev_A']:.6f}", "System B": f"{metrics['StDev_B']:.6f}", "Difference": f"{metrics['StDev_D']:.6f}"},
-                {"Metric": "SE Mean", "System A": f"{metrics['SE_A']:.6f}", "System B": f"{metrics['SE_B']:.6f}", "Difference": f"{metrics['SE_D']:.6f}"},
-                {"Metric": "95% CI Lower", "System A": "", "System B": "", "Difference": f"{metrics['CI_Lower']:.6f}"},
-                {"Metric": "95% CI Upper", "System A": "", "System B": "", "Difference": f"{metrics['CI_Upper']:.6f}"},
-                {"Metric": "T-Value", "System A": "", "System B": "", "Difference": f"{metrics['T_Value']:.6f}"},
-                {"Metric": "Degrees of Freedom", "System A": "", "System B": "", "Difference": int(metrics["DF"])},
-                {"Metric": "P-Value", "System A": "", "System B": "", "Difference": f"{metrics['P_Value']:.6f}"},
-            ]
-        )
-        .set_index("Metric")
-    )
-
-
 def paired_descriptive_dataframe(metrics: dict[str, Any]) -> pd.DataFrame:
     """Format the three-row descriptive statistics table for Paired T reports."""
     frame = pd.DataFrame(

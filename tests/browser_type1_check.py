@@ -18,13 +18,13 @@ from PIL import Image
 from playwright.sync_api import sync_playwright
 
 from browser_poc import archive_summary, html_summary, load_examples
-from browser_poc_server import ProofHandler, SOURCES, validate_pyodide_runtime
-from grr_browser_poc import analyze_grr, grr_export, grr_overview
-from paired_browser_poc import analyze_paired, paired_export, paired_overview
-from type1_browser_poc import analyze_type1
+from web.server import AppHandler, SOURCES, validate_pyodide_runtime
+from web.adapters.gage_rr import analyze_grr, grr_export, grr_overview
+from web.adapters.paired import analyze_paired, paired_export, paired_overview
+from web.adapters.type1 import analyze_type1
 
 
-class QuietProofHandler(ProofHandler):
+class QuietAppHandler(AppHandler):
     def log_message(self, format, *args):
         pass
 
@@ -370,7 +370,7 @@ def run_browser(executable, base_url, cases, filename, include_other_studies):
             check_other_studies(page, base_url)
             check_unified_app(page, base_url)
         allowed_paths = set(SOURCES) | {"/app", "/app-icon.png", "/browser-app.js", "/type1", "/type1.js", "/grr", "/paired", "/msa.js", "/runtime.js", "/runtime-config.json"}
-        allowed_paths.update(f"/runtime/{name}" for name in ProofHandler.runtime_allowlist)
+        allowed_paths.update(f"/runtime/{name}" for name in AppHandler.runtime_allowlist)
         if blocked or sockets or any(method != "GET" or parsed.query or body or parsed.path not in allowed_paths for method, parsed, body in requests):
             raise AssertionError("Unexpected browser network activity")
         context.close()
@@ -388,9 +388,9 @@ def main():
     parser.add_argument("--include-other-studies", action="store_true", help="Also test synthetic Gage R&R and Paired T workflows")
     arguments = parser.parse_args()
     directory = arguments.pyodide_dir.resolve(strict=True)
-    ProofHandler.runtime_directory = directory
-    ProofHandler.runtime_allowlist = validate_pyodide_runtime(directory)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), QuietProofHandler)
+    AppHandler.runtime_directory = directory
+    AppHandler.runtime_allowlist = validate_pyodide_runtime(directory)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), QuietAppHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     if arguments.input:

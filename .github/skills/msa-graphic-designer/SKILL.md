@@ -16,8 +16,8 @@ consistent interactions, and accurate communication over decoration.
 1. Identify the study, audience, screen or report, and requested outcome. Inspect
    the relevant view, components, styles, and existing visualization first.
 2. Preserve established visual conventions unless a redesign is requested.
-   Consider `tests/browser_app.*`, `tests/type1_browser_poc.*`,
-   `tests/msa_browser_poc.*`, and the corresponding visualization module.
+   Consider `src/web/app.*`, `src/web/type1.*`, `src/web/studies.*`, and
+   the corresponding visualization module.
 3. Design for scanning and comparison: clear labels and units, readable tables,
    consistent spacing, accessible contrast, and controls suited to each task.
    Avoid conveying statistical status through color alone.

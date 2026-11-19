@@ -13,7 +13,7 @@ let disposed = false;
 onBusyChange(true);
 
 element("title").textContent = study === "grr" ? "Gage R&R (Crossed) ANOVA Analysis" : "Paired t Test for the Mean of Two Systems";
-document.title = `${element("title").textContent} | Browser prototype`;
+document.title = `${element("title").textContent} | MSA Handy Tool`;
 element("distribution-label").hidden = study !== "grr";
 
 function setStatus(message, error = false) {
