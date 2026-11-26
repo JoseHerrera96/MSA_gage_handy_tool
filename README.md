@@ -127,3 +127,4 @@ Use the generated examples in the application to confirm the expected structure 
 The application is distributed under the [MIT License](LICENSE). See
 `desktop/THIRD_PARTY_NOTICES.md` and the bundled licenses for third-party terms.
 
+
