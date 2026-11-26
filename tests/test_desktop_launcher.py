@@ -242,6 +242,9 @@ class DesktopServerTests(unittest.TestCase):
             def check_build(command, **kwargs):
                 hook_directory = Path(command[command.index("--additional-hooks-dir") + 1])
                 self.assertEqual((hook_directory / "hook-pystray.py").read_text().strip(), 'module_collection_mode = "py"')
+                icon_path = Path(command[command.index("--icon") + 1])
+                self.assertEqual(icon_path.suffix, ".ico")
+                self.assertTrue(icon_path.is_file())
                 source_argument = next(value for value in command if value.endswith("application-source.zip;source"))
                 self.assertTrue(Path(source_argument.split(";", 1)[0]).is_file())
 
