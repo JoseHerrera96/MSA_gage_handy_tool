@@ -16,7 +16,7 @@ from pathlib import Path
 PROJECT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT / "src"))
 sys.path.insert(0, str(PROJECT / "tests"))
-from web.server import SOURCES, pyodide_runtime_allowlist, validate_pyodide_runtime
+from web.server import SOURCES, app_icon, pyodide_runtime_allowlist, validate_pyodide_runtime
 
 CORE_SHA256 = "9bc8f127db6c590b191b9aee754022cb41b1a36c7bac233776c11c5ecb541be8"
 UCRT_MANIFEST_SHA256 = "0f2b5d13d9524a3329f9aefe793cb7355c1a79ac2f9a316e7d4110a0e1fadde3"
@@ -199,7 +199,9 @@ def build(core_archive: Path, packages_directory: Path, output: Path, ucrt_direc
         stage_runtime(core_archive, packages_directory, runtime)
         licenses = temporary / "licenses"
         stage_licenses(runtime, licenses, sdk_license, snapshot)
-        command = [sys.executable, "-m", "PyInstaller", "--onedir", "--windowed", "--name", "MSA-Handy-Tool", "--additional-hooks-dir", str(snapshot / "desktop" / "hooks"), "--hidden-import", "pystray._win32", "--copy-metadata", "Pillow", "--copy-metadata", "pystray", "--copy-metadata", "six", "--paths", str(snapshot / "src"), "--paths", str(snapshot / "tests"), "--distpath", str(output), "--workpath", str(temporary / "work"), "--specpath", str(temporary)]
+        icon = temporary / "msa-handy-tool.ico"
+        app_icon().save(icon, format="ICO", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+        command = [sys.executable, "-m", "PyInstaller", "--onedir", "--windowed", "--name", "MSA-Handy-Tool", "--icon", str(icon), "--additional-hooks-dir", str(snapshot / "desktop" / "hooks"), "--hidden-import", "pystray._win32", "--copy-metadata", "Pillow", "--copy-metadata", "pystray", "--copy-metadata", "six", "--paths", str(snapshot / "src"), "--paths", str(snapshot / "tests"), "--distpath", str(output), "--workpath", str(temporary / "work"), "--specpath", str(temporary)]
         files = [source for route, source in SOURCES.items() if route != "/tests/browser_poc.py"]
         files.extend(PROJECT / "src" / "web" / name for name in UI_FILES)
         files.append(PROJECT / "LICENSE")
