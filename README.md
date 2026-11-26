@@ -22,17 +22,28 @@ the server does not delete downloaded reports or securely erase browser memory.
 
 ## Repository Overview
 
-- `desktop/launcher.py` — Windows launcher and loopback-only browser server.
-- `cli/command.py` — Unified `msa` CLI with `type1`, `grr`, and `paired` subcommands.
-- `cli/Type_1_gage_handy_tool.py`, `cli/Paired_T_Test_tool.py`,
-  `cli/Gage_RR_tool.py` — Legacy entry points retained for compatibility.
-- `src/web/` — Browser UI, Pyodide runtime, study adapters, and local application server.
-- `src/gage_tracer/` — Core library with parsing, calculation, examples, and dashboard rendering.
-- `tests/` — Browser comparisons, desktop checks, fixtures, and analytical validation.
-- `data/examples/` — Versioned synthetic example inputs.
-- `data/private/` — Ignored location for confidential local input data.
-- `outputs/` — Ignored generated analysis files.
-- `tests/` — Validation tests for key analytical components.
+MSA Handy Tool supports one shared analysis workflow through three interfaces:
+the packaged desktop application, a local browser server, and the `msa` command-line
+interface. Type 1, crossed Gage R&R, and Paired T inputs are validated and normalized
+before the project calculates study results, prepares visual diagnostics, and exports
+text, HTML, and ZIP reports.
+
+- `src/gage_tracer/` owns the reusable study logic: input parsing, MSA calculations,
+  result formatting, charts, dashboards, and synthetic examples.
+- `cli/` coordinates file-based command-line workflows and dispatches the `type1`,
+  `grr`, and `paired` commands to the shared study logic.
+- `src/web/` supplies the browser pages and adapters that run the shared workflows
+  locally with Pyodide, including the loopback server and application assets.
+- `desktop/` starts the portable Windows application, opens the local UI, manages
+  shutdown, and builds the PyInstaller distribution.
+- `data/examples/` and `tests/` provide synthetic inputs and verify parsing, numerical
+  results, browser behavior, and packaged desktop operation.
+- `data/private/` and `outputs/` are local-only locations for confidential inputs and
+  generated reports; both are excluded from version control.
+
+A typical analysis moves from **input file → validation and normalization → study
+calculation → visual review → export**, with the browser, CLI, and desktop application
+using the same core implementation.
 
 ## Installation and CLI
 
