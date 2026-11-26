@@ -1,414 +1,126 @@
-﻿# Integrated MSA Suite
+﻿# MSA Handy Tool
 
-Data Tracer delivers Measurement System Analysis (MSA) workflows for Type 1 Gage Study, Paired T-Test, and crossed Gage R&R ANOVA evaluations. Each workflow supports raw input, structured data, text reports, and self-contained HTML dashboards.
+MSA Handy Tool is a Windows application for Measurement System Analysis. It supports Type 1 Gage Study, crossed Gage R&R, and Paired T workflows, with input validation, visual results, and downloadable reports.
 
-[Download MSA Handy Tool (v1.0.0-beta)](https://github.com/JoseHerrera96/MSA_gage_handy_tool/releases/download/v1.0.0-beta/MSA-Handy-Tool.zip)
+[Download MSA Handy Tool v1.0.0 beta](https://github.com/JoseHerrera96/MSA_gage_handy_tool/releases/download/v1.0.0-beta/MSA-Handy-Tool.zip)
 
-## Windows Portable App
+## Download and Run
 
-Download and extract the ZIP, then open `MSA-Handy-Tool.exe`. Keep the
-`_internal` folder alongside the executable. The beta targets Windows 10 and
-11 (64-bit) and has been tested on Windows 11. It requires Microsoft Edge or Google Chrome,
-but does not require Python or an internet connection to run the study pages.
+1. Download the ZIP file.
+2. Extract the complete archive into a new folder.
+3. Open `MSA-Handy-Tool.exe` while keeping the `_internal` folder beside it.
 
-The app starts a loopback-only server and opens an Edge or Chrome app window
-in a temporary browser profile. Closing the last app window stops the server
-and exits the application. The MSA Handy Tool notification-area icon also
-provides **Abrir aplicacion** and **Cerrar servidor** commands.
+The packaged application requires 64 bit Windows 10 or 11 and a local installation of Microsoft Edge or Google Chrome. It does not require Python or an internet connection for its analysis workflows.
 
-This is an unsigned experimental build, so Windows may display a security
-warning. Validation with representative real inputs remains necessary. Stopping
-the server does not delete downloaded reports or securely erase browser memory.
+The executable starts a local server and opens the interface in an isolated browser window. Measurement files are processed locally in the browser. The server is not designed to receive uploaded measurements.
+
+This is an unsigned beta build, so Windows may display a security warning. Results should be validated for the user's measurement process before operational use.
+
+## What the Application Provides
+
+* Type 1 capability and bias analysis
+* Crossed Gage R&R analysis with ANOVA, variance components, interaction handling, and NDC
+* Paired T analysis with diagnostics and support for multiple characteristics
+* Input previews and validation errors before analysis
+* Study overviews, metric tables, charts, and downloadable reports
+* Example inputs generated from within the interface
+
+The application accepts supported text files with BEGIN and END markers, periodic reports, or custom whole line markers. Gage R&R also supports one file, files grouped by part, and files grouped by operator. Paired T supports numeric series and paired characteristic blocks.
 
 ## Repository Overview
 
-- `desktop/launcher.py` — Windows launcher and loopback-only browser server.
-- `cli/command.py` — Unified `msa` CLI with `type1`, `grr`, and `paired` subcommands.
-- `cli/Type_1_gage_handy_tool.py`, `cli/Paired_T_Test_tool.py`,
-  `cli/Gage_RR_tool.py` — Legacy entry points retained for compatibility.
-- `src/web/` — Browser UI, Pyodide runtime, study adapters, and local application server.
-- `src/gage_tracer/` — Core library with parsing, calculation, examples, and dashboard rendering.
-- `tests/` — Browser comparisons, desktop checks, fixtures, and analytical validation.
-- `data/examples/` — Versioned synthetic example inputs.
-- `data/private/` — Ignored location for confidential local input data.
-- `outputs/` — Ignored generated analysis files.
-- `tests/` — Validation tests for key analytical components.
+The downloadable ZIP contains one application: `MSA-Handy-Tool.exe`.
 
-## Installation and CLI
+The repository also contains source code for developers. The browser server and the `msa` command line interface can be run from a development checkout, but they are not separate applications in the ZIP.
 
-For source-based workflows, install the package in editable mode from the
-repository root. Python 3.10 or later is required.
+* `src/gage_tracer/` contains parsing, calculations, presentation, charts, and report generation.
+* `src/web/` contains the local web interface, Pyodide adapters, and browser server.
+* `desktop/` contains the Windows launcher and packaging script.
+* `cli/` provides the command line entry points.
+* `data/examples/` contains synthetic inputs.
+* `tests/` contains numerical, browser, and desktop checks.
+
+## Source Installation and CLI
+
+Python 3.10 or later is required for source development. Install the package from the repository root:
 
 ```powershell
 python -m pip install -e .
 ```
 
-The unified `msa` CLI provides three workflows:
+The `msa` command provides the same three studies:
 
 ```powershell
-msa type1 --input data/private/type1-study.txt --output outputs/type1
-msa grr --input data/private/grr-study.txt --report-order operator-major --output outputs/gage_rr
-msa paired --system-a data/private/system-a.txt --system-b data/private/system-b.txt --output outputs/paired
+msa type1 --input path/to/type1.txt --output outputs/type1
+msa grr --input path/to/gage_rr.txt --output outputs/gage_rr
+msa paired --system-a path/to/system_a.txt --system-b path/to/system_b.txt --output outputs/paired
 ```
 
-The desktop browser interface processes selected files in browser memory and
-never posts measurement data to the loopback server. Stopping the application
-releases the browser profile, but this is not a secure-erasure guarantee. CLI
-workflows read inputs and write their results to disk.
+Use `msa type1`, `msa grr`, or `msa paired` with `--help` for all supported options. The CLI writes generated data and reports to the selected output directory.
 
-Input and output arguments are optional; defaults use examples under
-`data/examples/` and the corresponding directories under `outputs/`.
+## Data and Examples
 
-## Architecture
-
-The project separates its browser interface, analysis logic, and CLI entry points.
-`src/gage_tracer/` contains the reusable core consumed by Pyodide and the file-based workflows.
-
-```mermaid
-flowchart LR
-        Browser[Browser user] --> Launcher[desktop launcher]
-        Launcher --> UI[Browser UI]
-        UI --> Pyodide[Local Pyodide runtime]
-        Pyodide --> Domain[src/gage_tracer]
-        CLI[CLI scripts] --> Domain
-        Domain --> Data[Normalized data]
-        Domain --> Reports[Text reports and HTML dashboards]
-```
-
-### Application and analysis modules
-
-- `desktop/launcher.py` starts a loopback-only server and opens the browser app.
-- `src/web/app.js`, `src/web/type1.js`, and `src/web/studies.js`
-  coordinate the three browser workflows; `src/web/adapters/` provides the Python boundary.
-- `data_parser.py` parses and validates the input formats for each study.
-- `calculations.py` implements Type 1 and crossed Gage R&R calculations,
-  including bias, capability indices, variance components, and NDC.
-- `paired_ttest.py` aligns paired observations and computes tests, intervals,
-  diagnostics, and multi-characteristic results with Holm adjustment.
-- `visualization.py` and `paired_visualization.py` generate study dashboards.
-- `presentation.py` prepares tables, previews, and presentation states;
-  `study_config.py` holds shared study configuration and thresholds.
-- `cli/command.py` exposes the unified command-line interface.
-
-The analysis flow is **raw input → parsing and validation → calculations →
-presentation or export**. The user interfaces delegate calculations to the core.
-
-### Command-line entry points
-
-The unified `msa` interface accepts explicit input and output paths:
-
-```powershell
-msa type1 [--input FILE] [--output DIR]
-msa grr [--input FILE] [--output DIR] [--report-order part-major|operator-major]
-msa paired [--system-a FILE] [--system-b FILE] [--output DIR]
-```
-
-The legacy scripts in `cli/` remain available for the Type 1, Paired T, and
-Gage R&R workflows. They share the `src/gage_tracer/` implementation rather
-than maintaining separate statistical formulas.
-
-## Repository Standard
-
-Examples are versioned under `data/examples/`; confidential local inputs belong
-in the ignored `data/private/` directory. Generated data, reports, and
-dashboards belong under `outputs/` and are ignored by Git. Do not place
-production measurement data in version control.
-
-## Layout
-
-```text
-.
-├── LICENSE
-├── README.md
-├── requirements.txt
-├── desktop/
-├── cli/
-│   ├── command.py
-│   ├── __main__.py
-│   └── legacy workflow entry points
-├── data/
-│   ├── examples/
-│   └── private/
-├── docs/
-├── outputs/
-├── src/
-│   ├── gage_tracer/
-│   └── web/
-│       ├── adapters/
-│       └── browser UI assets
-└── tests/
-```
-
-## Getting Started
-
-### Interactive UI
-
-Use the packaged Windows executable described above, or start the local browser
-server with a local Pyodide distribution:
-
-```powershell
-python -m web.server --pyodide-dir "C:\path\to\pyodide"
-```
-
-Then open `http://127.0.0.1:8765/app`. The interface provides browser-local file
-processing, study navigation, report selectors, metric panels, chart previews,
-and exportable HTML dashboards and ZIP reports.
-
-### Input Examples
-
-In the browser interface, **Download example** creates a synthetic example for the selected study
-and report format. For Paired T and grouped Gage R&R, the complete ZIP is generated.
-Gage R&R examples match the selected file distribution
-and, for a single file, the selected report sequence. The preview shows the first
-24 lines; the download contains the complete data. For customized examples,
-enter `REPORT` in both marker fields.
-
-Ready-to-upload examples in `data/examples/input_modes/` use the same
-measurements across formats. Select the corresponding browser option:
-
-| Study | BEGIN/END markers | Periodic reports without markers | Customized |
-| --- | --- | --- | --- |
-| Type 1 | [blocks.txt](data/examples/input_modes/type1/blocks.txt) | [periodic.txt](data/examples/input_modes/type1/periodic.txt) | [custom.txt](data/examples/input_modes/type1/custom.txt) |
-| Gage R&R | [single.txt](data/examples/input_modes/gage_rr/blocks/single.txt) | [single.txt](data/examples/input_modes/gage_rr/periodic/single.txt) | [single.txt](data/examples/input_modes/gage_rr/custom/single.txt) |
-
-Paired T examples are also available through **Download example** in the browser.
-The generated Paired T input-mode files may be absent from a checkout; use the
-generator below if those local files are needed.
-
-For every **Customized** example, enter `REPORT` in both the Start marker and
-End marker fields. Each report is enclosed by a pair of `REPORT` lines.
-
-Gage R&R also provides `parts/part_01.txt` through `parts/part_10.txt` and
-`operators/operator_1.txt` through `operators/operator_3.txt` in each of the
-`blocks`, `periodic`, and `custom` directories. Select the matching upload
-distribution and assign each file to the corresponding part or operator. For
-`single.txt`, choose `Part → Operator → Trial`. All sets represent the same
-90-report study.
-
-Paired T additionally has `multicharacteristic_a.txt` and
-`multicharacteristic_b.txt` in the `blocks` and `custom` directories. Load one
-file per system. The periodic mode accepts a numeric series or tab-separated
-characteristic and measurement rows per system.
-The Type 1 examples contain 20 complete reports. These examples are derived
-from the existing sample files and can be regenerated with:
+Use **Download example** inside the application to obtain a synthetic file or file group that matches the selected study and input format. Source examples are stored in `data/examples/` and can be regenerated with:
 
 ```powershell
 python data/examples/generate_input_modes.py
 ```
 
-### Browser Development Server
+Do not commit production measurement data. Local private inputs belong in `data/private/`, and generated reports belong in `outputs/`; both locations are excluded from version control.
 
-Start the local development server with `python -m web.server`:
+## Browser Development Server
 
-- `http://127.0.0.1:8765/app`: unified navigation for all three studies, using
-	one Pyodide instance while the page remains open.
-- `http://127.0.0.1:8765/type1`: Type 1 with normalized data and HTML downloads.
-- `http://127.0.0.1:8765/grr`: Gage R&R with single or grouped inputs and HTML/ZIP reports.
-- `http://127.0.0.1:8765/paired`: Paired T with two inputs and HTML/ZIP reports.
+Start the source interface from the repository root:
 
-Each study supports the three report formats and provides synthetic examples;
-use `REPORT` in both custom marker fields for those examples. Switching studies
-asks before clearing selected inputs and results. In characteristic views, Gage
-R&R can show its report chart and normalized observations, while Paired T can
-show its summary, diagnostics and report card inline on demand. Complete HTML
-dashboards remain available as downloads. The browser views do not reproduce
-all possible third-party desktop environments. The packaged browser app is the
-primary UI.
+```powershell
+python -m web.server
+```
 
-By default the pages load Pyodide 0.27.7 from jsDelivr, which can observe the
-connection and IP address. To serve the three study pages locally, obtain the
-[official Pyodide 0.27.7 full distribution](https://github.com/pyodide/pyodide/releases/tag/0.27.7),
-verify the archive checksum published there, extract it outside the repository,
-and point the server to the extracted directory containing `pyodide-lock.json`:
+Open `http://127.0.0.1:8765/app` in a browser. This development mode loads Pyodide 0.27.7 from jsDelivr.
+
+For an offline development run, provide an extracted [Pyodide 0.27.7 distribution](https://github.com/pyodide/pyodide/releases/tag/0.27.7) that contains `pyodide-lock.json`:
 
 ```powershell
 python -m web.server --pyodide-dir "C:\path\to\pyodide"
 ```
 
-The server checks required package files against the supplied lock file, but
-does not independently authenticate the lock or Pyodide core files. Obtain them
-from a trusted source. With `--pyodide-dir`, `/app` and the individual study
-pages use only the locally served runtime.
+## Testing
 
-To run the optional browser comparison tests, install Playwright in the local
-development environment (`python -m pip install playwright`), then run:
+Run the Python suite with:
+
+```powershell
+python -m pytest -q
+```
+
+With Playwright installed and a local Pyodide directory available, the browser comparison script can exercise all three studies in Chrome and Edge:
 
 ```powershell
 python tests/browser_type1_check.py --pyodide-dir "C:\path\to\pyodide" --include-other-studies
 ```
 
-On Windows this uses installed Chrome and Edge by default; `--browser PATH` can
-be repeated to choose executables. To compare a Type 1 file selected by you,
-add `--input PATH --format blocks`, or choose `periodic` or `custom`; custom
-inputs also need `--start-marker` and `--end-marker`. Without `--input`, tests
-use synthetic data. They compare numerical results with absolute tolerance
-`1e-8` and relative tolerance `1e-6`, verify actual downloads, and block
-non-local page requests. `--include-other-studies` also checks unified
-navigation, one-time runtime loading, result cleanup, and chart previews.
-Downloaded test files are deleted afterward, without a secure-erasure guarantee.
+## Building the Windows Distribution
 
-The study pages read selected files and run calculations in browser memory; they
-are not designed to send filenames or measurements to the server. In local-mode
-synthetic tests, page requests were limited to allowlisted localhost assets.
-This does not protect against a compromised browser or runtime, guarantee secure
-deletion, or establish equivalence for every input. Python and browser runtimes
-use different library versions and can render charts or line endings differently.
-The server binds to localhost and exposes only allowlisted project source files.
-
-### Building the Windows Distribution
-
-Before sharing or publishing a build, review the third-party terms in
-`desktop/THIRD_PARTY_NOTICES.md` and the bundled package licenses.
-
-To rebuild on Windows, install `pyinstaller==6.22.3` and `pystray==0.19.5` in the development
-environment and obtain the official Pyodide 0.27.7 core archive and the required
-scientific packages from the [release](https://github.com/pyodide/pyodide/releases/tag/0.27.7).
-To use the system UCRT included in Windows 10 and later, run:
+Install `pyinstaller==6.22.3` and `pystray==0.19.5`, then obtain the official Pyodide 0.27.7 core archive and package directory from the [Pyodide release](https://github.com/pyodide/pyodide/releases/tag/0.27.7).
 
 ```powershell
-python desktop/build.py --core-archive "C:\path\to\pyodide-core-0.27.7.tar.bz2" --packages-dir "C:\path\to\pyodide-packages" --system-ucrt
+python desktop/build.py --core-archive "C:\path\to\pyodide-core-0.27.7.tar.bz2" --packages-dir "C:\path\to\pyodide-packages" --system-ucrt --output dist\current
 ```
 
-The build checks the official core archive's SHA-256, checks each required
-package against the lock file from that archive, and verifies the Visual C++
-runtime DLLs against the official redistributable. After a successful build, the
-build routine keeps only the newest recognized local distribution under `dist/`
-and removes older generated distribution folders there. Unrelated directories
-and release ZIPs are not part of this cleanup.
-
-An alternative SDK-based
-build accepts `--ucrt-dir` and `--sdk-license`; see the third-party notices for
-its conditions. It refuses to overwrite an
-existing `dist/MSA-Handy-Tool`; choose a different `--output` directory for
-another build. To test the packaged executable locally with synthetic data,
-install the optional Playwright development package and run:
+The packaged application is written below the selected output directory. Before redistribution, run the packaged application check and review `desktop/THIRD_PARTY_NOTICES.md` together with the bundled licenses.
 
 ```powershell
-python tests/check_desktop_executable.py dist/MSA-Handy-Tool/MSA-Handy-Tool.exe
+python tests/check_desktop_executable.py dist\current\MSA-Handy-Tool\MSA-Handy-Tool.exe
 ```
 
-Add `--verify-tray-source` to test loading a modified copy of the bundled
-pystray source. This test makes changes only to a temporary copy of the bundle.
-The build includes notices and a version manifest under `_internal`, but a
-complete licensing review remains necessary before redistribution.
-The exact desktop and browser source used for the build is included in
-`_internal/source/application-source.zip`; it is not the full repository.
+## Supported Input Organization
 
-The full unittest suite currently reports a missing Paired T example file in
-`test_paired_input_mode_examples_are_equivalent`; the desktop and browser
-synthetic checks do not require that file. No real measurement files are used
-by those checks.
+The application validates each selected file and shows a preview before analysis.
 
-### CLI Workflows
+* Type 1 accepts a single file containing marked reports, periodic reports, or custom report markers.
+* Crossed Gage R&R accepts a balanced study in one file or in files grouped by part or operator. The selected collection order must match the upload configuration.
+* Paired T accepts two corresponding files. The data may represent one measurement series or multiple named characteristics.
 
-#### Type 1 Gage Study
-The Type 1 subcommand defaults to the bundled example. Supply custom files and
-output directories with:
-
-```bash
-msa type1 --input data/private/type1-study.txt --output outputs/type1
-```
-
-In the browser interface, the Type 1 workflow offers three input layouts. The existing layout
-uses one file with complete `BEGIN`/`END` report blocks. The delimiter-free
-layout uses one file with consecutive reports and no required markers. Each
-measurement row must be tab-separated as
-`<characteristic><TAB><measurement><TAB><nominal><TAB><upper tolerance><TAB><lower tolerance>`;
-extra trailing columns are ignored. Headers and `PATTERN:`, `DISPLAY:`, or
-`UNIT:` metadata may appear between reports. Each report must contain the same
-characteristics in the same order; a repeated characteristic starts the next
-report. The app displays the number of complete cycles detected and rejects
-incomplete or inconsistent cycles. The bundled `data/examples/type1/RAW DATA.txt`
-contains 120 complete reports followed by a truncated report; the parser rejects
-that final incomplete report rather than silently dropping or completing it.
-
-The Type 1 workflow also offers **Customized** report separation. Enter start and
-end markers that each occupy their own line; matching is case-insensitive after
-trimming whitespace. Use the same marker in both fields when one delimiter
-alternates between opening and closing reports; it must occur an even number of
-times. Text outside marked reports is ignored, while malformed or incomplete
-reports inside markers are rejected.
-
-#### Paired T-Test
-For a paired comparison, specify both files:
-
-```bash
-msa paired --system-a data/private/system-a.txt --system-b data/private/system-b.txt --output outputs/paired
-```
-
-#### Gage R&R (Crossed)
-
-Supply the raw report file and optional report order:
-
-```bash
-msa grr --input data/private/grr-study.txt --output outputs/gage_rr
-```
-
-The input must form a balanced design:
-
-$$\text{reports} = \text{operators} \times \text{parts} \times \text{trials}$$
-
-Each characteristic in a report receives an independent Gage R&R analysis and its own report/dashboard pair.
-
-For untagged report blocks, the order of the 90 reports determines the Part,
-Operator, and Trial labels. The default is `part-major`
-(`Part → Operator → Trial`); select `operator-major`
-(`Operator → Part → Trial`) when that matches the collection sequence:
-
-```bash
-msa grr --input data/private/grr-study.txt --report-order operator-major --output outputs/gage_rr
-```
-
-The browser workflow provides the same sequence choice. Part-tagged single-dimension input derives the part from its tags. It also asks **How are the reports separated?** and offers **BEGIN/END markers**, **Periodic reports without markers**, or **Customized** for each upload distribution (one file, one per part, or one per operator). In periodic mode, rows retain the characteristic, measurement, nominal, upper-tolerance, and lower-tolerance columns; repeating the first characteristic begins the next report. Customized markers must each occupy their own line; use the same marker in both fields to alternate report boundaries. Text outside marked reports is ignored, and malformed or incomplete report blocks are rejected.
-
-The browser also supports grouped uploads while keeping the same crossed design:
-
-- **10 files, one per part:** 9 reports per file; 3 trials for each of the 3 operators.
-- **3 files, one per operator:** 30 reports per file; 3 trials for each of the 10 parts.
-
-Characteristic tags are not fixed across source files. They may be names such as
-`Measurement1`–`Measurement3` or feature codes; each report must contain a
-consistent characteristic set. The parser assigns Part, Operator, and Trial
-from the selected upload mode and report order. The bundled
-`data/examples/gage_rr/GAGE RR DATA_backup.txt` is not a complete study: it contains only
-42 reports with duplicate `Measurement` tags and is rejected by validation.
-
-After processing, the Gage R&R workflow opens with a study overview that summarizes the verdict, variation components, NDC, and interaction result for every characteristic. Download the overview on its own or as the first HTML file in the all-reports ZIP.
-
-For the Paired T-Test, default inputs come from `data/examples/paired/`.
-Single-characteristic files contain one finite number per
-nonblank line. Multi-characteristic files use matching `:BEGIN`/`:END` blocks;
-within each block, each row is `<characteristic><TAB><measurement>`, with
-optional trailing GRR metadata fields ignored. Optional `PATTERN:`, `DISPLAY:`,
-and `UNIT:` lines are allowed inside blocks. Both systems need at least two
-blocks, the same block count and characteristic labels, and corresponding
-observations in the same block order. Multi-characteristic studies open with an
-overview and can export it with the per-characteristic dashboards.
-Characteristic labels can vary by source; corresponding blocks in System A
-and System B must use the same labels in the same order. A leading UTF-8 BOM
-is accepted in numeric files. The bundled OGP pair has 10 blocks and 8
-characteristics per system, with matching tags and within-block order.
-
-In the browser, **Periodic reports without markers** accepts either one finite
-measurement per line or tab-separated `<characteristic><TAB><measurement>`
-rows. A tabular row may also include nominal, upper tolerance and lower
-tolerance columns; these and other trailing columns are ignored and are not
-used to evaluate conformity. Every report must repeat the same characteristic
-labels in the same order, and both systems must have matching report counts
-and characteristic order. Repeating the first characteristic begins the next
-report. Numeric-only characteristic labels are rejected in this mode because
-they are ambiguous with multiple numeric measurements. Text-only headers and
-footers, `PATTERN:`, `DISPLAY:`, `UNIT:`, and `BEGIN`/`END` markers are
-ignored. Unclassified text between measurements and ambiguous or non-finite
-measurements are rejected. The paired-observation preview includes original
-source line numbers.
-
-The paired workflow also offers **Customized** separation for either one numeric
-measurement per report or tab-separated characteristic/measurement rows. Enter
-whole-line start and end markers for both system files; the marker pairs and
-characteristic order must match. A single repeated delimiter can be entered in
-both fields and must occur an even number of times. Text outside marked reports
-is ignored; source line columns continue to refer to the original files.
+Use the generated examples in the application to confirm the expected structure before preparing a new dataset. Detailed workflow notes are available in [docs/workflows/gage_rr_README.md](docs/workflows/gage_rr_README.md), [docs/workflows/paired_ttest_README.md](docs/workflows/paired_ttest_README.md), and [docs/specifications/PLAN_OPCIONES_ENTRADA_DATOS.md](docs/specifications/PLAN_OPCIONES_ENTRADA_DATOS.md).
 
 ## License
 
